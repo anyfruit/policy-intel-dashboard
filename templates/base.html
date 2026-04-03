@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}储能电力政策库{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#eff6ff', 600:'#2563eb', 700:'#1d4ed8', 800:'#1e3a8a', 900:'#172554' }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-900 flex flex-col">
+
+  <!-- 顶部导航 -->
+  <nav class="bg-brand-900 text-white shadow-lg sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+      <a href="/" class="flex items-center gap-2 text-lg font-bold whitespace-nowrap shrink-0">
+        <svg class="w-6 h-6 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M13 2L4.5 13.5H11L10 22L19.5 10.5H13L13 2Z"/>
+        </svg>
+        <span>储能电力政策库</span>
+      </a>
+
+      <div class="flex items-center gap-3 text-sm">
+        {% if user %}
+          <span class="text-blue-200 hidden sm:inline">{{ user.username }}</span>
+          {% if user.is_paid %}
+            <span class="bg-yellow-400 text-black text-xs px-2 py-0.5 rounded-full font-bold">PRO</span>
+          {% else %}
+            <span class="text-blue-300 text-xs hidden sm:inline">免费版</span>
+          {% endif %}
+          <a href="/logout" class="text-blue-200 hover:text-white transition-colors">退出</a>
+        {% else %}
+          <a href="/login" class="text-blue-200 hover:text-white transition-colors">登录</a>
+          <a href="/register" class="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-md font-medium transition-colors">注册</a>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+
+  <!-- 页面内容 -->
+  <div class="flex-1">
+    {% block content %}{% endblock %}
+  </div>
+
+  <!-- 页脚 -->
+  <footer class="bg-gray-800 text-gray-400 text-center text-xs py-4 mt-8">
+    <p>储能电力政策库 · 自动聚合中国各省市储能/电力交易政策文件</p>
+    <p class="mt-1">数据来源：国家能源局、国家发改委、各省发改委及行业媒体</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

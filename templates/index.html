@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}储能电力政策库 — 浏览政策{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-6">
+
+  <!-- 统计栏 -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
+      <div class="text-2xl font-bold text-blue-700">{{ stats.total }}</div>
+      <div class="text-xs text-gray-500 mt-1">政策总数</div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
+      <div class="text-2xl font-bold text-green-600">{{ stats.recent_30d }}</div>
+      <div class="text-xs text-gray-500 mt-1">近30天新增</div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
+      <div class="text-2xl font-bold text-purple-600">{{ stats.by_level.get('国家', 0) }}</div>
+      <div class="text-xs text-gray-500 mt-1">国家级政策</div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
+      <div class="text-2xl font-bold text-orange-500">{{ stats.by_level.get('省', 0) + stats.by_level.get('市', 0) }}</div>
+      <div class="text-xs text-gray-500 mt-1">地方政策</div>
+    </div>
+  </div>
+
+  <!-- AI 搜索入口（付费功能） -->
+  {% if user and user.is_paid %}
+  <div class="bg-gradient-to-r from-blue-700 to-indigo-700 rounded-xl p-5 mb-6 shadow-lg" id="ai-search-box">
+    <div class="flex items-center gap-2 text-white mb-3">
+      <svg class="w-5 h-5 text-yellow-300" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm1 14.93V17a1 1 0 11-2 0v-.07A8.001 8.001 0 014.07 11H4a1 1 0 110-2h.07A8.001 8.001 0 0111 4.07V4a1 1 0 112 0v.07A8.001 8.001 0 0119.93 11H20a1 1 0 110 2h-.07A8.001 8.001 0 0113 16.93z"/></svg>
+      <span class="font-semibold">AI 智能检索</span>
+      <span class="bg-yellow-400 text-black text-xs px-2 py-0.5 rounded-full font-bold ml-1">PRO</span>
+    </div>
+    <div class="flex gap-2">
+      <input type="text" id="ai-query" placeholder="例：2025年江苏省储能补贴政策、电力现货市场规则..."
+        class="flex-1 px-4 py-2.5 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400">
+      <button onclick="runAiSearch()" id="ai-search-btn"
+        class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold px-5 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap">
+        AI 搜索
+      </button>
+    </div>
+    <div id="ai-result" class="mt-4 hidden"></div>
+  </div>
+  {% else %}
+  <div class="bg-gray-800 text-white rounded-xl p-5 mb-6 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="bg-yellow-400 rounded-full p-2">
+        <svg class="w-5 h-5 text-black" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+      </div>
+      <div>
+        <div class="font-semibold text-sm">AI 智能检索 · AI 政策解读</div>
+        <div class="text-gray-400 text-xs mt-0.5">付费版专属：自然语言检索 + 政策深度解读</div>
+      </div>
+    </div>
+    <a href="/register" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors">
+      立即注册
+    </a>
+  </div>
+  {% endif %}
+
+  <div class="flex flex-col lg:flex-row gap-6">
+
+    <!-- 左侧筛选器 -->
+    <aside class="lg:w-56 shrink-0">
+      <form method="get" action="/" id="filter-form">
+        {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-5">
+          <h3 class="font-semibold text-gray-700 text-sm">筛选条件</h3>
+
+          <!-- 关键词 -->
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">关键词</label>
+            <input type="text" name="q" value="{{ q }}"
+              placeholder="标题/摘要/正文..."
+              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+
+          <!-- 地区 -->
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">地区</label>
+            <select name="region" onchange="this.form.submit()"
+              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <option value="">全部地区</option>
+              {% for r in regions %}
+              <option value="{{ r }}" {% if r == region %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- 层级 -->
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">政策层级</label>
+            <div class="space-y-1">
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="level" value="" onchange="this.form.submit()"
+                  {% if not level %}checked{% endif %} class="text-blue-600">
+                <span>全部</span>
+              </label>
+              {% for l in levels %}
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="level" value="{{ l }}" onchange="this.form.submit()"
+                  {% if l == level %}checked{% endif %} class="text-blue-600">
+                <span>{{ l }}级</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- 状态 -->
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">政策状态</label>
+            <div class="space-y-1">
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="status" value="" onchange="this.form.submit()"
+                  {% if not status %}checked{% endif %} class="text-blue-600">
+                <span>全部</span>
+              </label>
+              {% for s in statuses %}
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="status" value="{{ s }}" onchange="this.form.submit()"
+                  {% if s == status %}checked{% endif %} class="text-blue-600">
+                <span>{{ s }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- 分类 -->
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">文件分类</label>
+            <select name="category" onchange="this.form.submit()"
+              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <option value="">全部分类</option>
+              {% for ct in category_types %}
+              <option value="{{ ct }}" {% if ct == category %}selected{% endif %}>{{ ct }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="flex gap-2">
+            <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition-colors">
+              搜索
+            </button>
+            <a href="/" class="flex-1 text-center border border-gray-200 hover:bg-gray-50 py-2 rounded-lg text-sm transition-colors">
+              重置
+            </a>
+          </div>
+        </div>
+      </form>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 min-w-0">
+
+      <!-- 结果摘要 -->
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-sm text-gray-500">
+          共找到 <strong class="text-gray-900">{{ total }}</strong> 条政策
+          {% if q %}，关键词：<span class="text-blue-600">{{ q }}</span>{% endif %}
+          {% if region %}，地区：<span class="text-blue-600">{{ region }}</span>{% endif %}
+          {% if level %}，层级：<span class="text-blue-600">{{ level }}级</span>{% endif %}
+          {% if status %}，状态：<span class="text-blue-600">{{ status }}</span>{% endif %}
+        </p>
+        <span class="text-xs text-gray-400">第 {{ page }}/{{ total_pages }} 页</span>
+      </div>
+
+      <!-- 政策列表 -->
+      {% if items %}
+      <div class="space-y-3">
+        {% for item in items %}
+        <a href="/items/{{ item.id }}" class="block bg-white rounded-xl shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all p-4 group">
+          <div class="flex items-start gap-3">
+            <div class="flex-1 min-w-0">
+              <!-- 标题 -->
+              <h2 class="font-medium text-gray-900 group-hover:text-blue-700 text-sm leading-snug mb-2 line-clamp-2 transition-colors">
+                {{ item.title }}
+              </h2>
+
+              <!-- 摘要 -->
+              {% if item.summary %}
+              <p class="text-xs text-gray-500 line-clamp-2 mb-2">{{ item.summary[:200] }}</p>
+              {% endif %}
+
+              <!-- 标签行 -->
+              <div class="flex flex-wrap items-center gap-2">
+                {% if item.region %}
+                <span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+                  📍 {{ item.region }}
+                </span>
+                {% endif %}
+
+                <span class="text-xs px-2 py-0.5 rounded-full
+                  {% if item.level == '国家' %}bg-red-50 text-red-700
+                  {% elif item.level == '省' %}bg-orange-50 text-orange-700
+                  {% elif item.level == '市' %}bg-yellow-50 text-yellow-700
+                  {% else %}bg-gray-100 text-gray-600{% endif %}">
+                  {{ item.level }}级
+                </span>
+
+                <span class="text-xs px-2 py-0.5 rounded-full
+                  {% if item.status == '现行' %}bg-green-50 text-green-700
+                  {% elif item.status == '征求意见' %}bg-yellow-50 text-yellow-700
+                  {% else %}bg-gray-100 text-gray-500{% endif %}">
+                  {{ item.status }}
+                </span>
+
+                {% for cat in item.categories[:2] %}
+                <span class="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">{{ cat }}</span>
+                {% endfor %}
+              </div>
+            </div>
+
+            <!-- 日期 -->
+            <div class="text-right shrink-0">
+              <span class="text-xs text-gray-400">{{ item.date or '日期未知' }}</span>
+            </div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+
+      <!-- 分页 -->
+      {% if total_pages > 1 %}
+      <div class="flex justify-center items-center gap-2 mt-8">
+        {% if page > 1 %}
+        <a href="?q={{ q }}&region={{ region }}&level={{ level }}&status={{ status }}&category={{ category }}&page={{ page - 1 }}"
+           class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+          ← 上一页
+        </a>
+        {% endif %}
+
+        <span class="text-sm text-gray-500 px-2">{{ page }} / {{ total_pages }}</span>
+
+        {% if page < total_pages %}
+        <a href="?q={{ q }}&region={{ region }}&level={{ level }}&status={{ status }}&category={{ category }}&page={{ page + 1 }}"
+           class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+          下一页 →
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% else %}
+      <div class="bg-white rounded-xl border border-gray-100 p-16 text-center">
+        <div class="text-5xl mb-4">📭</div>
+        <p class="text-gray-500 text-sm">暂无符合条件的政策</p>
+        <a href="/" class="inline-block mt-4 text-blue-600 hover:underline text-sm">清除筛选条件</a>
+      </div>
+      {% endif %}
+
+    </main>
+  </div>
+</div>
+{% endblock %}
