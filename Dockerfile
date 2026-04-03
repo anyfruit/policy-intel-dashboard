@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py ./
 COPY *.yaml ./
 COPY static/ ./static/
+COPY templates/ ./templates/
 
 # Data dir — will be shadowed by fly.io volume mount at /data
 RUN mkdir -p /data
