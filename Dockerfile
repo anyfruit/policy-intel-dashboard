@@ -10,4 +10,4 @@ COPY static/ ./static/
 COPY templates/ ./templates/
 COPY seed.db ./seed.db
 
-CMD ["python", "server.py"]
+CMD sh -c "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080}"
