@@ -12,7 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy app code (not .venv / data / __pycache__)
 COPY *.py ./
-COPY *.yaml ./
 COPY static/ ./static/
 COPY templates/ ./templates/
 
