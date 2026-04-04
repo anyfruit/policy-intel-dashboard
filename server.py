@@ -319,6 +319,32 @@ async def register_submit(
     return resp
 
 
+@app.get("/compare", response_class=HTMLResponse)
+async def compare_page(
+    request: Request,
+    ids: str = "",
+    user=Depends(_get_user_with_plan),
+):
+    """政策对比页：通过 ids=1,2,3 参数选择要对比的政策。"""
+    items = []
+    if ids:
+        conn = get_conn()
+        try:
+            for item_id in ids.split(",")[:4]:
+                item_id = item_id.strip()
+                if item_id.isdigit():
+                    row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+                    if row:
+                        items.append(dict(row))
+        finally:
+            conn.close()
+    return templates.TemplateResponse(request, "compare.html", {
+        "user": user,
+        "items": items,
+        "ids": ids,
+    })
+
+
 @app.get("/logout")
 async def logout():
     resp = RedirectResponse("/", status_code=303)

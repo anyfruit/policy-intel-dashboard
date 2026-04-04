@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}政策对比 · 储能电力政策库{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold text-gray-800 mb-6">政策对比</h1>
+
+  {% if not items %}
+    <div class="bg-white rounded-xl shadow p-8 text-center text-gray-500">
+      <p class="text-lg mb-4">请从政策列表页选择要对比的政策（最多4条）</p>
+      <a href="/" class="inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+        返回政策列表
+      </a>
+    </div>
+  {% else %}
+    <div class="overflow-x-auto">
+      <table class="w-full bg-white rounded-xl shadow text-sm">
+        <thead>
+          <tr class="bg-gray-50 border-b">
+            <th class="text-left px-4 py-3 font-semibold text-gray-600 w-32">对比项</th>
+            {% for item in items %}
+              <th class="text-left px-4 py-3 font-semibold text-gray-800">
+                <a href="/items/{{ item.id }}" class="text-blue-600 hover:underline">{{ item.title[:30] }}{% if item.title|length > 30 %}…{% endif %}</a>
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <tr>
+            <td class="px-4 py-3 text-gray-500 font-medium">地区</td>
+            {% for item in items %}
+              <td class="px-4 py-3">{{ item.region or '—' }}</td>
+            {% endfor %}
+          </tr>
+          <tr class="bg-gray-50">
+            <td class="px-4 py-3 text-gray-500 font-medium">层级</td>
+            {% for item in items %}
+              <td class="px-4 py-3">{{ item.level or '—' }}</td>
+            {% endfor %}
+          </tr>
+          <tr>
+            <td class="px-4 py-3 text-gray-500 font-medium">状态</td>
+            {% for item in items %}
+              <td class="px-4 py-3">{{ item.status or '—' }}</td>
+            {% endfor %}
+          </tr>
+          <tr class="bg-gray-50">
+            <td class="px-4 py-3 text-gray-500 font-medium">发布日期</td>
+            {% for item in items %}
+              <td class="px-4 py-3">{{ item.pub_date or '—' }}</td>
+            {% endfor %}
+          </tr>
+          <tr>
+            <td class="px-4 py-3 text-gray-500 font-medium">发布机构</td>
+            {% for item in items %}
+              <td class="px-4 py-3">{{ item.issuer or '—' }}</td>
+            {% endfor %}
+          </tr>
+          <tr class="bg-gray-50">
+            <td class="px-4 py-3 text-gray-500 font-medium">摘要</td>
+            {% for item in items %}
+              <td class="px-4 py-3 text-gray-700">{{ item.summary or item.content[:200] or '—' }}{% if (item.summary or item.content or '')|length > 200 %}…{% endif %}</td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-6">
+      <a href="/" class="text-blue-600 hover:underline text-sm">← 返回政策列表</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
