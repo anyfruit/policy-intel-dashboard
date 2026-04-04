@@ -181,8 +181,7 @@ async def index(
     stats = _get_stats()
     total_pages = max(1, (total + 19) // 20)
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "user": user,
         "items": items,
         "total": total,
@@ -229,8 +228,7 @@ async def item_detail(
     finally:
         conn.close()
 
-    return templates.TemplateResponse("item.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "item.html", {
         "user": user,
         "item": item,
         "related": [dict(r) for r in related],
@@ -241,7 +239,7 @@ async def item_detail(
 async def login_page(request: Request, user=Depends(_get_user_with_plan)):
     if user:
         return RedirectResponse("/")
-    return templates.TemplateResponse("login.html", {"request": request, "user": None, "error": ""})
+    return templates.TemplateResponse(request, "login.html", {"user": None, "error": ""})
 
 
 @app.post("/login")
@@ -253,8 +251,8 @@ async def login_submit(
     u = auth.authenticate_user(username, password)
     if not u:
         return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "user": None, "error": "用户名或密码错误"},
+            request, "login.html",
+            {"user": None, "error": "用户名或密码错误"},
             status_code=400,
         )
     token = auth.create_access_token(u["id"], u["username"])
@@ -267,7 +265,7 @@ async def login_submit(
 async def register_page(request: Request, user=Depends(_get_user_with_plan)):
     if user:
         return RedirectResponse("/")
-    return templates.TemplateResponse("register.html", {"request": request, "user": None, "error": ""})
+    return templates.TemplateResponse(request, "register.html", {"user": None, "error": ""})
 
 
 @app.post("/register")
@@ -279,16 +277,16 @@ async def register_submit(
 ):
     if password != password2:
         return templates.TemplateResponse(
-            "register.html",
-            {"request": request, "user": None, "error": "两次密码不一致"},
+            request, "register.html",
+            {"user": None, "error": "两次密码不一致"},
             status_code=400,
         )
     try:
         u = auth.create_user(username, password)
     except ValueError as e:
         return templates.TemplateResponse(
-            "register.html",
-            {"request": request, "user": None, "error": str(e)},
+            request, "register.html",
+            {"user": None, "error": str(e)},
             status_code=400,
         )
     token = auth.create_access_token(u["id"], u["username"])
