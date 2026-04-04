@@ -1126,3 +1126,9 @@ async def compare_page():
 async def profile_page():
     html_path = BASE_DIR / "templates" / "app.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)

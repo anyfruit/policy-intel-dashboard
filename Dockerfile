@@ -10,5 +10,4 @@ COPY static/ ./static/
 COPY templates/ ./templates/
 COPY seed.db ./seed.db
 
-ENV PORT=8080
-CMD uvicorn server:app --host 0.0.0.0 --port 8080
+CMD ["python", "server.py"]
