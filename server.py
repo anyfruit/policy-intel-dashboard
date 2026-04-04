@@ -1,18 +1,18 @@
-"""server.py — 储能电力政策库 Web 服务
+"""server.py — 储能政策情报看板 Web 服务
 
-免费版：浏览政策列表、按条件筛选、查看政策详情
-付费版：AI 智能检索（语义搜索）、AI 政策解读
+Fly.io 原版前端（React SPA）+ 全量 JSON API
 """
 
 from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -22,7 +22,7 @@ from db import get_conn
 from tags import CATEGORY_TYPES
 from impact_score import calculate_impact_score, COMPANY_TYPES, BUSINESS_STAGES, PROVINCES_LIST
 
-app = FastAPI(title="储能电力政策库", docs_url=None, redoc_url=None)
+app = FastAPI(title="储能政策情报看板", docs_url=None, redoc_url=None)
 
 BASE_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -31,7 +31,6 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 # ── 依赖 ─────────────────────────────────────────────────────────────────────
 
 def _get_user_with_plan(access_token: Optional[str] = Cookie(default=None)) -> Optional[dict]:
-    """返回完整用户信息（含 is_paid）或 None。"""
     payload = auth._verify_token(access_token or "")
     if not payload:
         return None
@@ -48,7 +47,7 @@ def _get_user_with_plan(access_token: Optional[str] = Cookie(default=None)) -> O
 
 def require_login(user=Depends(_get_user_with_plan)) -> dict:
     if not user:
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        raise HTTPException(status_code=401, detail="请先登录")
     return user
 
 
@@ -56,7 +55,7 @@ def require_paid(user=Depends(_get_user_with_plan)) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail="请先登录")
     if not user.get("is_paid"):
-        raise HTTPException(status_code=402, detail="此功能需要付费订阅，请联系管理员升级账户。")
+        raise HTTPException(status_code=402, detail="此功能需要付费订阅")
     return user
 
 
@@ -85,10 +84,11 @@ def _query_items(
     level: str = "",
     status: str = "",
     category: str = "",
+    source: str = "",
+    tags: str = "",
     page: int = 1,
     limit: int = 20,
 ) -> tuple[list[dict], int]:
-    """全文检索 + 多维筛选，返回 (items, total)。"""
     conditions = []
     params: list = []
 
@@ -108,6 +108,12 @@ def _query_items(
     if category:
         conditions.append("categories LIKE ?")
         params.append(f"%{category}%")
+    if source:
+        conditions.append("source_name LIKE ?")
+        params.append(f"%{source}%")
+    if tags:
+        conditions.append("tags LIKE ?")
+        params.append(f"%{tags}%")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     offset = (max(page, 1) - 1) * limit
@@ -145,23 +151,62 @@ def _get_stats() -> dict:
         by_status = conn.execute(
             "SELECT status, COUNT(*) as cnt FROM items GROUP BY status"
         ).fetchall()
-        recent = conn.execute(
+        recent_30d = conn.execute(
             "SELECT COUNT(*) FROM items WHERE date >= date('now','-30 days')"
         ).fetchone()[0]
+        recent_7d = conn.execute(
+            "SELECT COUNT(*) FROM items WHERE date >= date('now','-7 days')"
+        ).fetchone()[0]
+        by_source = conn.execute(
+            "SELECT source_name, COUNT(*) as cnt FROM items WHERE source_name IS NOT NULL GROUP BY source_name ORDER BY cnt DESC"
+        ).fetchall()
         return {
             "total": total,
-            "recent_30d": recent,
+            "recent_30d": recent_30d,
+            "recent_7d": recent_7d,
             "by_level": {r["level"]: r["cnt"] for r in by_level},
             "by_status": {r["status"]: r["cnt"] for r in by_status},
+            "by_source": [{"name": r["source_name"], "count": r["cnt"]} for r in by_source],
         }
     finally:
         conn.close()
 
 
-# ── 页面路由 ──────────────────────────────────────────────────────────────────
+def _classify_bucket(categories: list) -> str:
+    """将 categories 映射到 bucket 标签。"""
+    for cat in categories:
+        if "补贴" in cat or "激励" in cat:
+            return "补贴"
+        if "招标" in cat or "采购" in cat or "竞配" in cat:
+            return "招标"
+        if "合规" in cat or "标准" in cat or "规范" in cat:
+            return "合规"
+    return "政策"
+
+
+def _get_user_profile(user_id: int) -> dict:
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT company_type, provinces, business_stage FROM user_profiles WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return {}
+        p = dict(row)
+        if isinstance(p.get("provinces"), str):
+            try:
+                p["provinces"] = json.loads(p["provinces"])
+            except Exception:
+                p["provinces"] = []
+        return p
+    finally:
+        conn.close()
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────
 
 def _seed_from_backup() -> None:
-    """如果 items 表为空，从捆绑的 seed.db 导入初始数据。"""
     import sqlite3 as _sqlite3
     seed_path = BASE_DIR / "seed.db"
     if not seed_path.exists():
@@ -207,226 +252,333 @@ async def startup():
     _seed_from_backup()
 
 
+# ── 主页：Fly.io React SPA ────────────────────────────────────────────────────
+
 @app.get("/", response_class=HTMLResponse)
-async def index(
-    request: Request,
-    q: str = "",
-    region: str = "",
-    level: str = "",
-    status: str = "",
-    category: str = "",
-    sort: str = "",
-    page: int = 1,
-    user=Depends(_get_user_with_plan),
-):
-    # "与我相关"排序：对付费用户用画像评分排序
-    if sort == "relevant" and user and user.get("is_paid"):
-        user_profile = _get_user_profile(user["id"])
-        # 取较大批量，评分后取前20*page条再分页
-        batch, _ = _query_items(q, region, level, status, category, page=1, limit=200)
-        for it in batch:
-            it["_score"] = calculate_impact_score(user_profile, it)["score"]
-        batch.sort(key=lambda x: x["_score"], reverse=True)
-        total = len(batch)
-        offset = (max(page, 1) - 1) * 20
-        items = batch[offset: offset + 20]
-        total_pages = max(1, (total + 19) // 20)
-    else:
-        items, total = _query_items(q, region, level, status, category, page, limit=20)
-        total_pages = max(1, (total + 19) // 20)
-
-    regions = _get_regions()
-    stats = _get_stats()
-
-    return templates.TemplateResponse(request, "index.html", {
-        "user": user,
-        "items": items,
-        "total": total,
-        "page": page,
-        "total_pages": total_pages,
-        "q": q,
-        "region": region,
-        "level": level,
-        "status": status,
-        "category": category,
-        "sort": sort,
-        "regions": regions,
-        "stats": stats,
-        "category_types": CATEGORY_TYPES,
-        "levels": ["国家", "省", "市", "行业"],
-        "statuses": ["现行", "征求意见", "废止"],
-    })
+async def index():
+    html_path = BASE_DIR / "templates" / "app.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
-@app.get("/items/{item_id}", response_class=HTMLResponse)
-async def item_detail(
-    request: Request,
-    item_id: int,
-    user=Depends(_get_user_with_plan),
-):
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
-    finally:
-        conn.close()
+# ── JSON Auth API ──────────────────────────────────────────────────────────────
 
-    if not row:
-        raise HTTPException(404, "政策不存在")
-
-    item = _item_to_dict(row)
-
-    # 相关政策（同地区或同分类，最多5条）
-    region = item.get("region") or ""
-    conn = get_conn()
-    try:
-        related = conn.execute(
-            "SELECT id, title, date, level FROM items WHERE region=? AND id!=? ORDER BY date DESC LIMIT 5",
-            (region, item_id),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    # 付费用户：预计算影响评分（可能无画像，返回空）
-    impact = None
-    if user and user.get("is_paid"):
-        user_profile = _get_user_profile(user["id"])
-        impact = calculate_impact_score(user_profile, item)
-
-    return templates.TemplateResponse(request, "item.html", {
-        "user": user,
-        "item": item,
-        "related": [dict(r) for r in related],
-        "impact": impact,
-    })
+@app.get("/api/auth/me")
+async def api_auth_me(user=Depends(_get_user_with_plan)):
+    if not user:
+        raise HTTPException(status_code=401, detail="未登录")
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "email": user.get("email") or "",
+        "is_paid": bool(user.get("is_paid")),
+        "smtp_configured": False,
+    }
 
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, user=Depends(_get_user_with_plan)):
-    if user:
-        return RedirectResponse("/")
-    return templates.TemplateResponse(request, "login.html", {"user": None, "error": ""})
-
-
-@app.post("/login")
-async def login_submit(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-):
+@app.post("/api/auth/login")
+async def api_auth_login(request: Request):
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
     u = auth.authenticate_user(username, password)
     if not u:
-        return templates.TemplateResponse(
-            request, "login.html",
-            {"user": None, "error": "用户名或密码错误"},
-            status_code=400,
-        )
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = auth.create_access_token(u["id"], u["username"])
-    resp = RedirectResponse("/", status_code=303)
+    resp = JSONResponse({
+        "id": u["id"],
+        "username": u["username"],
+        "is_paid": bool(u.get("is_paid")),
+    })
     resp.set_cookie("access_token", token, httponly=True, max_age=auth._TOKEN_TTL_SEC, samesite="lax")
     return resp
 
 
-@app.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request, user=Depends(_get_user_with_plan)):
-    if user:
-        return RedirectResponse("/")
-    return templates.TemplateResponse(request, "register.html", {"user": None, "error": ""})
-
-
-@app.post("/register")
-async def register_submit(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    password2: str = Form(...),
-):
-    if password != password2:
-        return templates.TemplateResponse(
-            request, "register.html",
-            {"user": None, "error": "两次密码不一致"},
-            status_code=400,
-        )
+@app.post("/api/auth/register")
+async def api_auth_register(request: Request):
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
     try:
         u = auth.create_user(username, password)
     except ValueError as e:
-        return templates.TemplateResponse(
-            request, "register.html",
-            {"user": None, "error": str(e)},
-            status_code=400,
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     token = auth.create_access_token(u["id"], u["username"])
-    resp = RedirectResponse("/", status_code=303)
+    resp = JSONResponse({
+        "id": u["id"],
+        "username": u["username"],
+        "is_paid": False,
+    })
     resp.set_cookie("access_token", token, httponly=True, max_age=auth._TOKEN_TTL_SEC, samesite="lax")
     return resp
 
 
-@app.get("/compare", response_class=HTMLResponse)
-async def compare_page(
-    request: Request,
-    ids: str = "",
-    user=Depends(_get_user_with_plan),
-):
-    """政策对比页：通过 ids=1,2,3 参数选择要对比的政策。"""
-    items = []
-    if ids:
-        conn = get_conn()
-        try:
-            for item_id in ids.split(",")[:4]:
-                item_id = item_id.strip()
-                if item_id.isdigit():
-                    row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
-                    if row:
-                        items.append(dict(row))
-        finally:
-            conn.close()
-    return templates.TemplateResponse(request, "compare.html", {
-        "user": user,
-        "items": items,
-        "ids": ids,
-    })
-
-
-@app.get("/logout")
-async def logout():
-    resp = RedirectResponse("/", status_code=303)
+@app.post("/api/auth/logout")
+async def api_auth_logout():
+    resp = JSONResponse({"ok": True})
     resp.delete_cookie("access_token")
     return resp
 
 
-def _get_user_profile(user_id: int) -> dict:
-    """获取用户画像，不存在返回空 dict。"""
+# ── Public API（无需登录）─────────────────────────────────────────────────────
+
+@app.get("/api/public/dashboard")
+async def api_public_dashboard(latest_n: int = 10):
     conn = get_conn()
     try:
-        row = conn.execute(
-            "SELECT company_type, provinces, business_stage FROM user_profiles WHERE user_id=?",
-            (user_id,),
-        ).fetchone()
-        if not row:
-            return {}
-        p = dict(row)
-        if isinstance(p.get("provinces"), str):
-            try:
-                p["provinces"] = json.loads(p["provinces"])
-            except Exception:
-                p["provinces"] = []
-        return p
+        total = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        recent_7d = conn.execute(
+            "SELECT COUNT(*) FROM items WHERE date >= date('now','-7 days')"
+        ).fetchone()[0]
+        rows = conn.execute(
+            "SELECT id, title, url, date, source_name, region, categories FROM items ORDER BY date DESC, id DESC LIMIT ?",
+            (latest_n,),
+        ).fetchall()
+        latest = []
+        for r in rows:
+            cats = _parse_json_field(r["categories"])
+            latest.append({
+                "id": r["id"],
+                "title": r["title"],
+                "url": r["url"] or "",
+                "date": r["date"],
+                "source_name": r["source_name"] or "",
+                "region": r["region"] or "全国",
+                "bucket": _classify_bucket(cats),
+            })
+        updated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        return {
+            "total": total,
+            "recent_7d": recent_7d,
+            "updated_at": updated_at,
+            "latest": latest,
+        }
     finally:
         conn.close()
 
 
-@app.get("/profile", response_class=HTMLResponse)
-async def profile_page(request: Request, user=Depends(require_login)):
-    profile = _get_user_profile(user["id"])
-    return templates.TemplateResponse(request, "profile.html", {
-        "user": user,
-        "profile": profile,
-        "company_types": COMPANY_TYPES,
-        "business_stages": BUSINESS_STAGES,
-        "provinces_list": PROVINCES_LIST,
-    })
+@app.get("/api/public/items")
+async def api_public_items(limit: int = 10):
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, url, date, summary, source_name, region, level, status, categories, tags FROM items ORDER BY date DESC, id DESC LIMIT ?",
+            (min(limit, 20),),
+        ).fetchall()
+        items = []
+        for r in rows:
+            items.append({
+                "id": r["id"],
+                "title": r["title"],
+                "url": r["url"] or "",
+                "date": r["date"],
+                "doc_no": None,
+                "summary": r["summary"] or "",
+                "source_name": r["source_name"] or "",
+                "region": r["region"] or "全国",
+                "level": r["level"] or "",
+                "status": r["status"] or "",
+                "version_count": 1,
+                "categories": _parse_json_field(r["categories"]),
+                "tags": _parse_json_field(r["tags"]),
+            })
+        return {"items": items}
+    finally:
+        conn.close()
 
 
-# ── JSON API ──────────────────────────────────────────────────────────────────
+# ── Stats API ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/stats")
+async def api_stats():
+    return _get_stats()
+
+
+@app.get("/api/stats/trend")
+async def api_stats_trend(months: int = 12):
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT strftime('%Y-%m', date) as mm,
+                      SUM(CASE WHEN categories LIKE '%补贴%' THEN 1 ELSE 0 END) as subsidy,
+                      SUM(CASE WHEN categories LIKE '%招标%' THEN 1 ELSE 0 END) as tender,
+                      SUM(CASE WHEN categories LIKE '%合规%' OR categories LIKE '%标准%' THEN 1 ELSE 0 END) as compliance,
+                      COUNT(*) as policy
+               FROM items
+               WHERE date IS NOT NULL AND date >= date('now', ? || ' months')
+               GROUP BY mm ORDER BY mm""",
+            (f"-{months}",),
+        ).fetchall()
+        series = {"政策": [], "补贴": [], "招标": [], "合规": []}
+        months_list = []
+        for r in rows:
+            months_list.append(r["mm"])
+            series["政策"].append(r["policy"])
+            series["补贴"].append(r["subsidy"])
+            series["招标"].append(r["tender"])
+            series["合规"].append(r["compliance"])
+        return {"months": months_list, "series": series}
+    finally:
+        conn.close()
+
+
+# ── Filters & Sources API ─────────────────────────────────────────────────────
+
+@app.get("/api/filters/meta")
+async def api_filters_meta(days: int = 0):
+    conn = get_conn()
+    try:
+        date_filter = f"WHERE date >= date('now', '-{days} days')" if days > 0 else ""
+        regions = conn.execute(
+            f"SELECT region, COUNT(*) as cnt FROM items {date_filter} GROUP BY region ORDER BY cnt DESC"
+        ).fetchall()
+        cats = conn.execute(
+            f"SELECT categories FROM items {date_filter}"
+        ).fetchall()
+        statuses = conn.execute(
+            f"SELECT status, COUNT(*) as cnt FROM items {date_filter} GROUP BY status"
+        ).fetchall()
+
+        region_counts = {r["region"]: r["cnt"] for r in regions if r["region"]}
+        region_list = [r["region"] for r in regions if r["region"]]
+
+        cat_counts: dict = {}
+        for row in cats:
+            for c in _parse_json_field(row["categories"]):
+                cat_counts[c] = cat_counts.get(c, 0) + 1
+
+        status_counts = {r["status"]: r["cnt"] for r in statuses if r["status"]}
+
+        return {
+            "regions": region_list,
+            "region_counts": region_counts,
+            "category_counts": cat_counts,
+            "status_counts": status_counts,
+            "levels": ["国家", "省", "市", "行业"],
+            "categories": CATEGORY_TYPES,
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/sources")
+async def api_sources():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT source_name, COUNT(*) as cnt FROM items WHERE source_name IS NOT NULL GROUP BY source_name ORDER BY cnt DESC LIMIT 20"
+        ).fetchall()
+        return [{"name": r["source_name"], "count": r["cnt"], "status": "ok"} for r in rows]
+    finally:
+        conn.close()
+
+
+# ── Dashboard API（需登录）────────────────────────────────────────────────────
+
+@app.get("/api/dashboard")
+async def api_dashboard(latest_n: int = 12, user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        # 最新条目
+        rows = conn.execute(
+            "SELECT id, title, url, date, source_name, region, categories FROM items ORDER BY date DESC, id DESC LIMIT ?",
+            (latest_n,),
+        ).fetchall()
+        latest = []
+        for r in rows:
+            cats = _parse_json_field(r["categories"])
+            latest.append({
+                "id": r["id"],
+                "title": r["title"],
+                "url": r["url"] or "",
+                "date": r["date"],
+                "source_name": r["source_name"] or "",
+                "region": r["region"] or "全国",
+                "bucket": _classify_bucket(cats),
+            })
+
+        # 省份矩阵
+        region_rows = conn.execute(
+            """SELECT region,
+                      SUM(CASE WHEN categories LIKE '%补贴%' THEN 1 ELSE 0 END) as subsidy,
+                      SUM(CASE WHEN categories LIKE '%招标%' THEN 1 ELSE 0 END) as tender,
+                      SUM(CASE WHEN categories LIKE '%合规%' OR categories LIKE '%标准%' THEN 1 ELSE 0 END) as compliance,
+                      COUNT(*) as total
+               FROM items WHERE region IS NOT NULL AND region != ''
+               GROUP BY region ORDER BY total DESC LIMIT 30"""
+        ).fetchall()
+        matrix = []
+        for r in region_rows:
+            total = r["total"]
+            subsidy = r["subsidy"]
+            tender = r["tender"]
+            compliance = r["compliance"]
+            policy = total - subsidy - tender - compliance
+            matrix.append({
+                "region": r["region"],
+                "policy": max(0, policy),
+                "subsidy": subsidy,
+                "tender": tender,
+                "compliance": compliance,
+                "total": total,
+            })
+
+        updated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        return {"matrix": matrix, "latest": latest, "updated_at": updated_at}
+    finally:
+        conn.close()
+
+
+@app.get("/api/dashboard/trends")
+async def api_dashboard_trends(user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        # Top keywords from tags
+        rows = conn.execute(
+            "SELECT tags FROM items WHERE tags IS NOT NULL AND tags != '[]' ORDER BY date DESC LIMIT 200"
+        ).fetchall()
+        kw_counts: dict = {}
+        for r in rows:
+            for t in _parse_json_field(r["tags"]):
+                kw_counts[t] = kw_counts.get(t, 0) + 1
+        top_kw = sorted(kw_counts.items(), key=lambda x: -x[1])[:20]
+        return {
+            "top_keywords": [{"word": k, "count": v} for k, v in top_kw],
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/dashboard/intel")
+async def api_dashboard_intel(user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        # 本周新增
+        new_rows = conn.execute(
+            "SELECT id, title, url, date, source_name, region, categories FROM items WHERE date >= date('now','-7 days') ORDER BY date DESC LIMIT 10"
+        ).fetchall()
+        new_items = []
+        for r in new_rows:
+            cats = _parse_json_field(r["categories"])
+            new_items.append({
+                "id": r["id"],
+                "title": r["title"],
+                "url": r["url"] or "",
+                "date": r["date"],
+                "source_name": r["source_name"] or "",
+                "region": r["region"] or "全国",
+                "bucket": _classify_bucket(cats),
+            })
+        return {
+            "interpret_coverage": 0,
+            "opportunity_radar": [],
+            "risk_alerts": [],
+            "new_this_week": new_items,
+        }
+    finally:
+        conn.close()
+
+
+# ── Items API ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/items")
 async def api_items(
@@ -435,11 +587,18 @@ async def api_items(
     level: str = "",
     status: str = "",
     category: str = "",
+    source: str = "",
+    tags: str = "",
     page: int = 1,
     limit: int = 20,
+    user=Depends(_get_user_with_plan),
 ):
     limit = min(limit, 100)
-    items, total = _query_items(q, region, level, status, category, page, limit)
+    items, total = _query_items(q, region, level, status, category, source, tags, page, limit)
+    # Add version_count and bucket fields
+    for item in items:
+        item.setdefault("version_count", 1)
+        item["bucket"] = _classify_bucket(item.get("categories", []))
     return {"items": items, "total": total, "page": page}
 
 
@@ -452,17 +611,244 @@ async def api_item(item_id: int):
         conn.close()
     if not row:
         raise HTTPException(404)
-    return _item_to_dict(row)
+    item = _item_to_dict(row)
+    item.setdefault("version_count", 1)
+    item["bucket"] = _classify_bucket(item.get("categories", []))
+    return item
 
 
-@app.get("/api/stats")
-async def api_stats():
-    return _get_stats()
+@app.get("/api/items/{item_id}/versions")
+async def api_item_versions(item_id: int, user=Depends(require_login)):
+    return {"versions": []}
+
+
+@app.get("/api/items/{item_id}/diff")
+async def api_item_diff(item_id: int, user=Depends(require_login)):
+    return {"diff": None}
+
+
+@app.get("/api/items/{item_id}/checklist")
+async def api_item_checklist(item_id: int, format: str = "md", user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT title FROM items WHERE id=?", (item_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404)
+    return JSONResponse({"title": row["title"], "checklist": []})
+
+
+@app.get("/api/items/{item_id}/analysis")
+async def api_item_analysis(item_id: int, mode: str = "standard", force: bool = False, user=Depends(require_login)):
+    """政策 AI 解读（与 ai/interpret 共用逻辑）。"""
+    # 检查缓存
+    if not force:
+        conn = get_conn()
+        try:
+            cached = conn.execute(
+                "SELECT analysis_data FROM item_analyses WHERE item_id=?", (item_id,)
+            ).fetchone()
+            if cached:
+                return json.loads(cached["analysis_data"])
+        finally:
+            conn.close()
+
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404)
+
+    item = _item_to_dict(row)
+    return {
+        "item_id": item_id,
+        "title": item.get("title", ""),
+        "core_content": "政策解读功能需要 ANTHROPIC_API_KEY。",
+        "key_requirements": [],
+        "impact_analysis": {"developers": "", "manufacturers": "", "grid": ""},
+        "action_items": [],
+        "timeline": "",
+        "overall_assessment": "",
+        "status": "no_api_key",
+    }
+
+
+# ── Search API ────────────────────────────────────────────────────────────────
+
+@app.get("/api/search")
+async def api_search(q: str = "", limit: int = 20, user=Depends(_get_user_with_plan)):
+    if not q.strip():
+        return {"items": [], "total": 0}
+    items, total = _query_items(q=q, page=1, limit=min(limit, 50))
+    for item in items:
+        item.setdefault("version_count", 1)
+        item["bucket"] = _classify_bucket(item.get("categories", []))
+    return {"items": items, "total": total, "query": q}
+
+
+# ── Compare API ───────────────────────────────────────────────────────────────
+
+@app.post("/api/compare")
+async def api_compare(request: Request, user=Depends(require_login)):
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not ids:
+        raise HTTPException(400, "请提供政策 ID 列表")
+    conn = get_conn()
+    try:
+        items = []
+        for item_id in ids[:4]:
+            row = conn.execute("SELECT * FROM items WHERE id=?", (int(item_id),)).fetchone()
+            if row:
+                items.append(_item_to_dict(row))
+        return {"items": items}
+    finally:
+        conn.close()
+
+
+# ── Bookmarks API（stub）─────────────────────────────────────────────────────
+
+@app.get("/api/bookmarks")
+async def api_bookmarks(user=Depends(require_login)):
+    return {"items": []}
+
+
+@app.get("/api/bookmarks/{item_id}/status")
+async def api_bookmark_status(item_id: int, user=Depends(require_login)):
+    return {"bookmarked": False}
+
+
+@app.post("/api/bookmarks/{item_id}")
+async def api_bookmark_add(item_id: int, user=Depends(require_login)):
+    return {"ok": True, "bookmarked": True}
+
+
+@app.delete("/api/bookmarks/{item_id}")
+async def api_bookmark_delete(item_id: int, user=Depends(require_login)):
+    return {"ok": True, "bookmarked": False}
+
+
+# ── Notifications API（stub）──────────────────────────────────────────────────
+
+@app.get("/api/notifications/count")
+async def api_notif_count(user=Depends(require_login)):
+    return {"unread": 0}
+
+
+@app.get("/api/notifications")
+async def api_notifications(unread_only: bool = False, limit: int = 20, offset: int = 0, user=Depends(require_login)):
+    return {"items": [], "total": 0}
+
+
+@app.post("/api/notifications/{notif_id}/read")
+async def api_notif_read(notif_id: int, user=Depends(require_login)):
+    return {"ok": True}
+
+
+@app.post("/api/notifications/read-all")
+async def api_notif_read_all(user=Depends(require_login)):
+    return {"ok": True}
+
+
+# ── Subscriptions API（stub）──────────────────────────────────────────────────
+
+@app.get("/api/subscriptions")
+async def api_subscriptions(user=Depends(require_login)):
+    return []
+
+
+@app.post("/api/subscriptions")
+async def api_subscription_create(request: Request, user=Depends(require_login)):
+    return {"id": 1, "ok": True}
+
+
+@app.delete("/api/subscriptions/{sub_id}")
+async def api_subscription_delete(sub_id: int, user=Depends(require_login)):
+    return {"ok": True}
+
+
+# ── Digest & Report API（stub）───────────────────────────────────────────────
+
+@app.get("/api/digest/daily")
+async def api_digest_daily(days: int = 1, brief: bool = False, user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, url, date, source_name, region, categories FROM items WHERE date >= date('now', ? || ' days') ORDER BY date DESC LIMIT 20",
+            (f"-{days}",),
+        ).fetchall()
+        items = []
+        for r in rows:
+            cats = _parse_json_field(r["categories"])
+            items.append({
+                "id": r["id"],
+                "title": r["title"],
+                "url": r["url"] or "",
+                "date": r["date"],
+                "source_name": r["source_name"] or "",
+                "region": r["region"] or "全国",
+                "bucket": _classify_bucket(cats),
+            })
+        return {"days": days, "items": items, "total": len(items)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/report/weekly")
+async def api_report_weekly(format: str = "md", user=Depends(require_login)):
+    stats = _get_stats()
+    report = f"# 储能政策情报周报\n\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+    report += f"## 数据概览\n- 总收录：{stats['total']} 条\n- 近7天新增：{stats['recent_7d']} 条\n"
+    return {"format": format, "content": report}
+
+
+# ── Scope API（stub）─────────────────────────────────────────────────────────
+
+@app.get("/api/scope")
+async def api_scope(user=Depends(require_login)):
+    return {"config": {}}
+
+
+@app.post("/api/scope")
+async def api_scope_save(request: Request, user=Depends(require_login)):
+    return {"ok": True}
+
+
+# ── Scrape Status API（stub）─────────────────────────────────────────────────
+
+@app.get("/api/scrape-status")
+async def api_scrape_status(user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT source_name, MAX(created_at) as last_scraped, COUNT(*) as cnt FROM items GROUP BY source_name ORDER BY cnt DESC LIMIT 20"
+        ).fetchall()
+        sources = []
+        for r in rows:
+            sources.append({
+                "name": r["source_name"],
+                "last_scraped": r["last_scraped"],
+                "count": r["cnt"],
+                "status": "ok",
+            })
+        return {"sources": sources, "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    finally:
+        conn.close()
+
+
+# ── Profile API ───────────────────────────────────────────────────────────────
+
+@app.get("/api/profile")
+async def api_get_profile(user=Depends(require_login)):
+    profile = _get_user_profile(user["id"])
+    return profile
 
 
 @app.post("/api/profile")
 async def api_save_profile(request: Request, user=Depends(require_login)):
-    """保存/更新用户画像（登录即可用）。"""
     body = await request.json()
     company_type   = (body.get("company_type") or "").strip()
     provinces      = body.get("provinces", [])
@@ -486,9 +872,10 @@ async def api_save_profile(request: Request, user=Depends(require_login)):
     return {"ok": True}
 
 
+# ── Impact Score API ──────────────────────────────────────────────────────────
+
 @app.get("/api/items/{item_id}/impact")
 async def api_item_impact(item_id: int, user=Depends(require_paid)):
-    """返回该政策对当前用户的影响评分（付费功能）。"""
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
@@ -496,14 +883,12 @@ async def api_item_impact(item_id: int, user=Depends(require_paid)):
         conn.close()
     if not row:
         raise HTTPException(404, "政策不存在")
-
-    policy       = _item_to_dict(row)
+    policy = _item_to_dict(row)
     user_profile = _get_user_profile(user["id"])
-    result       = calculate_impact_score(user_profile, policy)
-    return result
+    return calculate_impact_score(user_profile, policy)
 
 
-# ── AI 功能（付费）────────────────────────────────────────────────────────────
+# ── AI API（付费）────────────────────────────────────────────────────────────
 
 def _get_anthropic_client():
     try:
@@ -513,7 +898,7 @@ def _get_anthropic_client():
             raise HTTPException(503, "AI 服务未配置（ANTHROPIC_API_KEY 未设置）")
         return anthropic.Anthropic(api_key=api_key)
     except ImportError:
-        raise HTTPException(503, "AI 依赖未安装（anthropic）")
+        raise HTTPException(503, "AI 依赖未安装")
 
 
 @app.post("/api/ai/search")
@@ -523,10 +908,8 @@ async def ai_search(request: Request, user=Depends(require_paid)):
     if not query:
         raise HTTPException(400, "查询内容不能为空")
 
-    # 先用关键词在数据库做初步检索（最多 60 条）
     conn = get_conn()
     try:
-        # 尝试多个词分别搜索
         words = query.split()
         conditions = []
         params = []
@@ -534,18 +917,11 @@ async def ai_search(request: Request, user=Depends(require_paid)):
             like = f"%{w}%"
             conditions.append("(title LIKE ? OR summary LIKE ?)")
             params += [like, like]
-
-        if conditions:
-            where = "WHERE " + " OR ".join(conditions)
-        else:
-            where = ""
-
+        where = "WHERE " + " OR ".join(conditions) if conditions else ""
         rows = conn.execute(
             f"SELECT id, title, summary, region, date, level, status FROM items {where} ORDER BY date DESC LIMIT 60",
             params,
         ).fetchall()
-
-        # 如果关键词匹配太少，补充最近的条目
         if len(rows) < 10:
             rows = conn.execute(
                 "SELECT id, title, summary, region, date, level, status FROM items ORDER BY date DESC LIMIT 50"
@@ -554,8 +930,6 @@ async def ai_search(request: Request, user=Depends(require_paid)):
         conn.close()
 
     candidate_items = [dict(r) for r in rows]
-
-    # 构建给 Claude 的上下文
     items_text = "\n".join([
         f"{i+1}. [{r.get('region','未知')}] {r['title']} ({r.get('date','')}) [{r.get('level','')}]"
         + (f"\n   {(r.get('summary') or '')[:150]}" if r.get("summary") else "")
@@ -569,27 +943,22 @@ async def ai_search(request: Request, user=Depends(require_paid)):
         model="claude-sonnet-4-6",
         max_tokens=2000,
         system="你是中国储能电力政策专家助手。请严格按 JSON 格式回复，不要添加任何其他内容。",
-        messages=[{
-            "role": "user",
-            "content": f"""用户查询："{query}"
+        messages=[{"role": "user", "content": f"""用户查询："{query}"
 
-以下是数据库中的政策条目（编号 · 地区 · 标题 · 日期 · 层级 · 摘要节选）：
+以下是数据库中的政策条目：
 {items_text}
 
-请从上述列表中找出与用户查询最相关的条目，按相关度排序，返回以下 JSON：
+请从上述列表中找出与用户查询最相关的条目，返回以下 JSON：
 {{
   "summary": "针对用户查询的整体背景说明（2-3句话）",
   "results": [
-    {{"number": 1, "relevance": "高/中/低", "key_point": "与查询的关联要点（1句话）"}},
-    ...
+    {{"number": 1, "relevance": "高/中/低", "key_point": "与查询的关联要点（1句话）"}}
   ]
 }}
-最多返回 10 条最相关的，按相关度从高到低排列。只返回 JSON。""",
-        }],
+最多返回 10 条，按相关度从高到低排列。只返回 JSON。"""}],
     )
 
     ai_text = response.content[0].text.strip()
-    # 容错：提取 JSON 块
     if "```" in ai_text:
         import re
         m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", ai_text, re.DOTALL)
@@ -599,12 +968,8 @@ async def ai_search(request: Request, user=Depends(require_paid)):
     try:
         ai_result = json.loads(ai_text)
     except Exception:
-        ai_result = {
-            "summary": "AI 分析完成",
-            "results": [{"number": i + 1, "relevance": "中", "key_point": ""} for i in range(min(5, len(candidate_items)))],
-        }
+        ai_result = {"summary": "AI 分析完成", "results": []}
 
-    # 组装最终结果
     final_items = []
     for r in ai_result.get("results", []):
         idx = int(r.get("number", 0)) - 1
@@ -614,17 +979,11 @@ async def ai_search(request: Request, user=Depends(require_paid)):
             item["ai_key_point"] = r.get("key_point", "")
             final_items.append(item)
 
-    return {
-        "query": query,
-        "summary": ai_result.get("summary", ""),
-        "items": final_items,
-        "total": len(final_items),
-    }
+    return {"query": query, "summary": ai_result.get("summary", ""), "items": final_items, "total": len(final_items)}
 
 
 @app.get("/api/ai/interpret/{item_id}")
 async def ai_interpret(item_id: int, user=Depends(require_paid)):
-    # 检查缓存
     conn = get_conn()
     try:
         cached = conn.execute(
@@ -632,7 +991,6 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
         ).fetchone()
         if cached:
             return json.loads(cached["analysis_data"])
-
         row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
     finally:
         conn.close()
@@ -641,7 +999,6 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
         raise HTTPException(404, "政策不存在")
 
     item = _item_to_dict(row)
-
     content_text = f"""政策标题：{item['title']}
 地区：{item.get('region', '未知')}
 时间：{item.get('date', '未知')}
@@ -652,14 +1009,11 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
 {('正文：' + (item.get('content') or '')[:3000]) if item.get('content') else ''}"""
 
     client = _get_anthropic_client()
-
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2000,
         system="你是中国储能电力政策专家。请用简洁、专业的中文解读政策，严格按 JSON 格式回复。",
-        messages=[{
-            "role": "user",
-            "content": f"""请解读以下政策文件：
+        messages=[{"role": "user", "content": f"""请解读以下政策文件：
 
 {content_text}
 
@@ -676,8 +1030,7 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
   "timeline": "重要时间节点（如有，否则填无）",
   "overall_assessment": "总体评价及政策走向判断（1-2句话）"
 }}
-只返回 JSON。""",
-        }],
+只返回 JSON。"""}],
     )
 
     ai_text = response.content[0].text.strip()
@@ -699,7 +1052,6 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
             "overall_assessment": "",
         }
 
-    # 写入缓存
     conn = get_conn()
     try:
         conn.execute(
@@ -721,7 +1073,6 @@ _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
 @app.post("/admin/grant-paid")
 async def admin_grant_paid(request: Request):
-    """管理员给用户开通付费权限。需在请求 header 带 X-Admin-Key。"""
     if not _ADMIN_KEY:
         raise HTTPException(403, "ADMIN_KEY 未配置")
     if request.headers.get("X-Admin-Key") != _ADMIN_KEY:
@@ -742,3 +1093,36 @@ async def admin_grant_paid(request: Request):
         conn.close()
 
     return {"ok": True, "username": username, "is_paid": bool(is_paid)}
+
+
+# ── Legacy HTML routes（保持兼容）────────────────────────────────────────────
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    html_path = BASE_DIR / "templates" / "app.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page():
+    html_path = BASE_DIR / "templates" / "app.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/logout")
+async def logout():
+    resp = RedirectResponse("/", status_code=303)
+    resp.delete_cookie("access_token")
+    return resp
+
+
+@app.get("/compare", response_class=HTMLResponse)
+async def compare_page():
+    html_path = BASE_DIR / "templates" / "app.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page():
+    html_path = BASE_DIR / "templates" / "app.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))

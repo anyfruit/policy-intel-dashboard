@@ -1,0 +1,3309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>储能政策情报看板 v4</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      /* 基础配色（Linear/SaaS Dashboard 风格） */
+      --bg: #f1f5f9;
+      --card-bg: #ffffff;
+      --surface-2: #f8fafc;
+      --border: #e5e7eb;
+
+      --text: #0f172a;
+      --text-muted: #475569;
+      --text-xs: #94a3b8;
+
+      /* Primary / Accent（紫蓝渐变） */
+      --accent: #6366f1;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eef2ff;
+      --primary-grad: linear-gradient(135deg, #6366f1 0%, #2563eb 70%, #0ea5e9 120%);
+
+      /* Layout */
+      --sidebar-w: 248px;
+      --radius: 12px;
+
+      /* Shadow / Focus */
+      --shadow: 0 1px 2px rgba(15,23,42,.06), 0 10px 28px rgba(15,23,42,.08);
+      --shadow-hover: 0 14px 42px rgba(15,23,42,.14);
+      --ring: 0 0 0 4px rgba(99,102,241,.18);
+
+      /* Semantic */
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+    }
+    body {
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* Header */
+    header { background:#0f172a; color:#fff; height:52px; padding:0 20px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:200; box-shadow:0 2px 10px rgba(0,0,0,.2); }
+    .logo { font-size:16px; font-weight:700; display:flex; align-items:center; gap:8px; }
+    .logo-sub { font-size:11px; color:#94a3b8; font-weight:400; margin-left:4px; }
+    .header-left { display:flex; align-items:center; gap:10px; min-width:0; }
+    .hamburger-btn { display:none; width:34px; height:34px; border-radius:10px; background:rgba(30,41,59,.45); border:1px solid rgba(148,163,184,.25); color:#e2e8f0; cursor:pointer; font-size:18px; line-height:1; align-items:center; justify-content:center; }
+    .hamburger-btn:hover { background:rgba(51,65,85,.55); border-color:rgba(148,163,184,.35); }
+    .header-right { display:flex; align-items:center; gap:16px; }
+    .header-stats { display:flex; gap:18px; font-size:12px; color:#94a3b8; }
+    .header-stats strong { color:#e2e8f0; }
+    .header-time { font-size:12px; color:#94a3b8; padding:4px 10px; border:1px solid rgba(148,163,184,.25); border-radius:999px; background:rgba(30,41,59,.35); }
+    .btn-logout { padding:6px 14px; border-radius:10px; background:rgba(30,41,59,.55); border:1px solid rgba(148,163,184,.25); color:#cbd5e1; font-size:12px; cursor:pointer; transition:transform .12s, background .12s, border-color .12s; }
+    .btn-logout:hover { transform:translateY(-1px); background:rgba(51,65,85,.65); border-color:rgba(148,163,184,.35); }
+    .btn-login-header { padding:6px 16px; border-radius:999px; background:var(--primary-grad); border:none; color:#fff; font-size:12px; font-weight:700; cursor:pointer; transition:transform .12s, filter .12s, box-shadow .12s; box-shadow:0 10px 24px rgba(37,99,235,.18); }
+    .btn-login-header:hover { transform:translateY(-1px); filter:saturate(1.05); }
+    .user-badge { font-size:12px; color:#94a3b8; display:flex; align-items:center; gap:8px; min-width:0; }
+    .user-avatar { width:26px; height:26px; border-radius:999px; background:rgba(96,165,250,.18); border:1px solid rgba(96,165,250,.35); color:#bfdbfe; display:inline-flex; align-items:center; justify-content:center; font-weight:850; font-size:12px; flex-shrink:0; }
+    .user-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .user-name strong { color:#60a5fa; }
+    .notif-badge { display:inline-flex; align-items:center; justify-content:center; background:#ef4444; color:#fff; font-size:10px; font-weight:700; border-radius:10px; min-width:18px; height:18px; padding:0 5px; margin-left:4px; }
+
+    /* Public Banner */
+    .public-banner { background:linear-gradient(135deg,#1e40af,#2563eb); color:#fff; padding:32px 24px 28px; text-align:center; }
+    .public-banner h1 { font-size:24px; font-weight:800; margin-bottom:6px; }
+    .public-banner p { font-size:13px; opacity:.85; max-width:560px; margin:0 auto 18px; line-height:1.7; }
+    .public-badge { display:inline-block; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3); border-radius:20px; padding:3px 14px; font-size:12px; margin-bottom:12px; }
+    .public-login-hint { font-size:12px; opacity:.75; }
+    .public-login-hint button { background:none; border:none; color:#bfdbfe; cursor:pointer; font-size:12px; text-decoration:underline; }
+    .public-stats-row { display:flex; justify-content:center; gap:32px; margin-top:16px; }
+    .public-stat { text-align:center; }
+    .public-stat-v { font-size:28px; font-weight:800; }
+    .public-stat-l { font-size:11px; opacity:.75; margin-top:2px; }
+
+    /* Auth */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:1000; backdrop-filter:blur(3px); }
+    .modal-box { background:#fff; border-radius:16px; padding:36px 40px; width:380px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
+    .modal-logo { text-align:center; font-size:28px; margin-bottom:6px; }
+    .modal-title { text-align:center; font-size:20px; font-weight:700; color:#0f172a; margin-bottom:4px; }
+    .modal-sub { text-align:center; font-size:12px; color:#94a3b8; margin-bottom:24px; }
+    .auth-tabs { display:flex; border-bottom:2px solid #e2e8f0; margin-bottom:22px; }
+    .auth-tab { flex:1; padding:8px 0; text-align:center; font-size:14px; font-weight:600; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:all .15s; }
+    .auth-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
+    .form-group { margin-bottom:16px; }
+    .form-label { display:block; font-size:12px; font-weight:600; color:#475569; margin-bottom:6px; }
+    .form-input { width:100%; padding:9px 12px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:14px; color:var(--text); background:#f8fafc; outline:none; transition:border-color .15s; }
+    .form-input:focus { border-color:var(--primary); background:#fff; }
+    .btn-primary {
+      width:100%;
+      padding:10px 12px;
+      background:var(--primary-grad);
+      color:#fff;
+      border:none;
+      border-radius:12px;
+      font-size:14px;
+      font-weight:750;
+      cursor:pointer;
+      transition:transform .12s, filter .12s, box-shadow .12s;
+      margin-top:4px;
+      box-shadow:0 14px 30px rgba(37,99,235,.18);
+    }
+    .btn-primary:hover { transform:translateY(-1px); filter:saturate(1.04); }
+    .btn-primary:focus { outline:none; box-shadow:var(--ring), 0 14px 30px rgba(37,99,235,.18); }
+    .btn-primary:disabled { opacity:.6; cursor:not-allowed; }
+    .auth-error { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; border-radius:8px; padding:8px 12px; font-size:12px; margin-bottom:14px; }
+    .auth-hint { text-align:center; font-size:11px; color:#94a3b8; margin-top:14px; }
+
+    /* App Shell（已登录：左侧 Sidebar 导航） */
+    .app-shell { display:flex; gap:14px; padding:14px; align-items:flex-start; }
+    .nav-sidebar {
+      width:var(--sidebar-w);
+      flex-shrink:0;
+      position:sticky;
+      top:68px;
+      max-height:calc(100vh - 80px);
+      overflow:auto;
+      border-radius:16px;
+      background:#111827;
+      border:1px solid rgba(255,255,255,.06);
+      box-shadow:0 18px 40px rgba(2,6,23,.30);
+      padding:12px;
+    }
+    .nav-title { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:rgba(226,232,240,.65); font-weight:800; padding:6px 8px 10px; }
+    .nav-items { display:flex; flex-direction:column; gap:6px; }
+    .nav-item {
+      position:relative;
+      width:100%;
+      text-align:left;
+      padding:10px 10px;
+      border-radius:12px;
+      border:1px solid transparent;
+      background:transparent;
+      color:rgba(226,232,240,.86);
+      cursor:pointer;
+      font-size:13px;
+      font-weight:650;
+      transition:transform .12s, background .12s, border-color .12s;
+      overflow:hidden;
+    }
+    .nav-item:hover { transform:translateY(-1px); background:rgba(15,23,42,.65); border-color:rgba(148,163,184,.14); }
+    .nav-item.active { background:rgba(15,23,42,.70); border-color:rgba(99,102,241,.35); }
+    .nav-item.active::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--primary-grad); border-radius:12px 0 0 12px; }
+    .nav-item-label { display:flex; align-items:center; justify-content:space-between; gap:10px; position:relative; z-index:2; }
+    .nav-item-glow {
+      position:absolute; inset:-40px -60px;
+      background:radial-gradient(closest-side, rgba(99,102,241,.26), transparent 70%);
+      opacity:.9;
+      transform:translateX(-18px);
+      pointer-events:none;
+    }
+    .nav-footer {
+      margin-top:12px;
+      padding:12px 10px;
+      border-top:1px solid rgba(255,255,255,.08);
+      color:rgba(226,232,240,.72);
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .nav-foot-stat { display:flex; justify-content:space-between; align-items:center; font-size:12px; }
+    .nav-foot-stat .k { color:rgba(148,163,184,.8); }
+    .nav-foot-stat .v { font-variant-numeric:tabular-nums; font-weight:800; color:#e2e8f0; }
+    .nav-foot-hint { font-size:11px; color:rgba(148,163,184,.72); line-height:1.5; }
+
+    .app-main { flex:1; min-width:0; padding:2px 2px 18px; }
+
+    /* 页面 Layout（列表页：筛选 sidebar + 内容区） */
+    .main-layout { display:flex; width:100%; padding:16px 14px; gap:16px; align-items:flex-start; }
+    .sidebar { width:var(--sidebar-w); flex-shrink:0; position:sticky; top:68px; max-height:calc(100vh - 80px); overflow-y:auto; scrollbar-width:thin; }
+    .sidebar::-webkit-scrollbar { width:4px; }
+    .sidebar::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+    .filter-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius); padding:14px 14px 10px; margin-bottom:10px; box-shadow:var(--shadow); }
+    .filter-title { font-size:11px; font-weight:700; letter-spacing:.7px; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; display:flex; align-items:center; gap:5px; }
+    .filter-section { margin-bottom:12px; }
+    .filter-label { font-size:11px; color:var(--text-muted); font-weight:600; margin-bottom:6px; display:block; }
+    select, input[type=text] { width:100%; padding:6px 9px; border:1px solid var(--border); border-radius:6px; font-size:12px; color:var(--text); background:#fff; outline:none; }
+    select:focus, input[type=text]:focus { border-color:var(--primary); }
+    .chip-group { display:flex; flex-wrap:wrap; gap:5px; }
+    .chip { padding:3px 9px; border-radius:999px; border:1px solid var(--border); background:#fff; font-size:11px; cursor:pointer; color:var(--text-muted); transition:transform .12s, box-shadow .12s, border-color .12s, color .12s, background .12s; white-space:nowrap; line-height:1.5; }
+    .chip:hover { transform:translateY(-1px); box-shadow:0 12px 24px rgba(15,23,42,.08); border-color:rgba(99,102,241,.35); color:var(--text); }
+    .chip.active { background:var(--primary-grad); border-color:transparent; color:#fff; }
+    .chip:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; transform:none; }
+    .cat-chip { padding:3px 9px; border-radius:20px; border:1.5px solid transparent; font-size:11px; cursor:pointer; transition:all .12s; white-space:nowrap; }
+    .btn-reset { width:100%; padding:7px; background:#f8fafc; border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer; color:var(--text-muted); margin-top:4px; }
+    .btn-reset:hover { background:#e2e8f0; }
+    .active-filters { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:12px; align-items:center; }
+    .active-filters.prominent { padding:10px 10px 8px; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; box-shadow:var(--shadow); }
+    .af-label { font-size:11px; color:#92400e; font-weight:800; margin-right:4px; }
+    .af-pill { display:inline-flex; align-items:center; gap:4px; background:var(--primary-light); color:var(--primary); border-radius:20px; font-size:11px; padding:2px 8px; font-weight:500; }
+    .af-pill button { background:none; border:none; cursor:pointer; font-size:12px; line-height:1; color:var(--primary); padding:0; }
+    .content { flex:1; min-width:0; }
+
+    /* View tabs */
+    .view-tabs { display:flex; gap:0; margin-bottom:14px; flex-wrap:wrap; }
+    .view-tab { padding:7px 16px; font-size:13px; font-weight:600; border:1.5px solid var(--border); background:#fff; cursor:pointer; color:var(--text-muted); transition:all .14s; white-space:nowrap; }
+    .view-tab:first-child { border-radius:8px 0 0 8px; }
+    .view-tab:last-child { border-radius:0 8px 8px 0; border-left:none; }
+    .view-tab:not(:first-child):not(:last-child) { border-left:none; }
+    .view-tab.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+    .view-tab-inner { display:flex; align-items:center; gap:4px; }
+
+    /* Dashboard */
+    .dash-section-title { font-size:13px; font-weight:700; color:#0f172a; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+    .dash-section-title .updated { font-size:11px; font-weight:400; color:#94a3b8; }
+    .stat-cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:16px; }
+    .stat-card {
+      position:relative;
+      background:var(--card-bg);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      padding:16px 18px 14px 18px;
+      box-shadow:var(--shadow);
+      overflow:hidden;
+      transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+    }
+    .stat-card::before {
+      content:"";
+      position:absolute;
+      left:0;
+      top:0;
+      bottom:0;
+      width:4px;
+      background:var(--stat-accent, var(--primary));
+    }
+    .stat-card:hover { transform:translateY(-2px); box-shadow:var(--shadow-hover); border-color:rgba(99,102,241,.25); }
+    .stat-card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+    .stat-card-label { font-size:12px; color:var(--text-muted); font-weight:650; letter-spacing:.01em; }
+    .stat-card-ico { font-size:14px; opacity:.9; }
+    .stat-card-value { font-size:30px; font-weight:850; color:var(--text); letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+    .stat-card-sub { font-size:11px; color:var(--text-xs); margin-top:2px; display:flex; align-items:center; gap:6px; }
+    .mini-trend { font-size:11px; color:rgba(99,102,241,.9); background:rgba(99,102,241,.12); border:1px solid rgba(99,102,241,.22); padding:1px 7px; border-radius:999px; font-weight:700; }
+    .matrix-wrap { background:#fff; border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin-bottom:16px; }
+    .matrix-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .matrix-table th { background:#f8fafc; padding:10px 12px; text-align:left; font-weight:600; color:#475569; border-bottom:1px solid var(--border); white-space:nowrap; }
+    .matrix-table th.num { text-align:right; }
+    .matrix-table td { padding:8px 12px; border-bottom:1px solid #f1f5f9; color:#334155; }
+    .matrix-table tr:last-child td { border-bottom:none; }
+    .matrix-table tr:hover td { background:#f8fafc; }
+    .matrix-table td.region-name { font-weight:600; color:#0f172a; }
+    .matrix-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .heat-cell { display:inline-block; min-width:36px; padding:2px 8px; border-radius:5px; text-align:center; font-weight:600; font-size:12px; }
+    .total-badge { display:inline-block; min-width:36px; padding:2px 8px; border-radius:5px; text-align:center; font-weight:700; font-size:12px; background:#0f172a; color:#fff; }
+    .latest-wrap { background:#fff; border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+    .latest-header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px 10px; border-bottom:1px solid var(--border); }
+    .latest-header-title { font-size:13px; font-weight:700; color:#0f172a; }
+    .btn-view-all { font-size:12px; color:var(--primary); cursor:pointer; background:none; border:none; font-weight:600; }
+    .btn-view-all:hover { text-decoration:underline; }
+    .latest-item { display:flex; align-items:flex-start; gap:10px; padding:10px 16px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background .12s; }
+    .latest-item:last-child { border-bottom:none; }
+    .latest-item:hover { background:#f8fafc; }
+    .latest-bucket { flex-shrink:0; margin-top:2px; font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; min-width:36px; text-align:center; }
+    .bucket-policy { background:#dbeafe; color:#1e40af; }
+    .bucket-subsidy { background:#d1fae5; color:#065f46; }
+    .bucket-tender { background:#fef3c7; color:#92400e; }
+    .bucket-compliance { background:#fee2e2; color:#991b1b; }
+    .latest-body { flex:1; min-width:0; }
+    .latest-title { font-size:13px; font-weight:500; color:#0f172a; line-height:1.5; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; }
+    .latest-meta { display:flex; gap:8px; margin-top:3px; flex-wrap:wrap; }
+    .latest-date { font-size:11px; color:#94a3b8; }
+    .latest-source { font-size:11px; color:#64748b; }
+    .latest-region { font-size:11px; color:#16a34a; background:#f0fdf4; padding:0 5px; border-radius:3px; }
+
+    /* Dashboard Viz Grid */
+    .viz-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+    .viz-card-map { grid-column: 1 / -1; } /* 地图独占一整行 */
+    .viz-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:14px 14px 10px; position:relative; overflow:hidden; transition:transform .14s, box-shadow .14s, border-color .14s; }
+    .viz-card:hover { transform:translateY(-2px); box-shadow:var(--shadow-hover); border-color:rgba(99,102,241,.22); }
+    .viz-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; }
+    .viz-title { font-size:13px; font-weight:800; color:var(--text); }
+    .viz-sub { font-size:11px; color:var(--text-xs); margin-top:2px; }
+    .viz-legend { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .viz-legend .it { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); }
+    .viz-legend .dot { width:10px; height:10px; border-radius:3px; }
+    .viz-tooltip { position:absolute; pointer-events:none; background:#0b1020; color:#fff; padding:6px 8px; border-radius:10px; font-size:11px; box-shadow:0 18px 46px rgba(2,6,23,.40); transform:translate(10px,-10px); white-space:nowrap; z-index:10; }
+    @media (max-width: 980px){ .viz-grid{ grid-template-columns:1fr; } }
+
+    /* Trend Chart */
+    .chart-wrap { background:#fff; border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-bottom:16px; }
+    .chart-title-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    .chart-seg { display:flex; gap:0; }
+    .chart-seg-btn { padding:3px 12px; font-size:11px; font-weight:600; border:1px solid var(--border); background:#fff; cursor:pointer; color:var(--text-muted); transition:all .14s; }
+    .chart-seg-btn:first-child { border-radius:5px 0 0 5px; }
+    .chart-seg-btn:last-child { border-radius:0 5px 5px 0; border-left:none; }
+    .chart-seg-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+    .chart-container { height:auto; min-height:300px; position:relative; width:100%; overflow-x:auto; }
+    .chart-subtitle { font-size:12px; color:#64748b; margin:-4px 0 10px; }
+    .chart-tooltip { position:absolute; pointer-events:none; background:#0f172a; color:#fff; padding:6px 8px; border-radius:8px; font-size:11px; box-shadow:0 10px 30px rgba(0,0,0,.18); transform:translate(10px,-10px); white-space:nowrap; z-index:5; }
+
+    /* Top Keywords */
+    .keyword-wrap { background:#fff; border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-bottom:16px; }
+    .keyword-cloud { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+    .keyword-chip { padding:4px 12px; border-radius:20px; font-size:12px; font-weight:500; cursor:default; border:1px solid; transition:transform .1s; }
+    .keyword-chip:hover { transform:scale(1.05); }
+
+    /* Version Timeline */
+    .version-timeline { display:flex; flex-direction:column; gap:0; position:relative; }
+    .version-timeline::before { content:''; position:absolute; left:8px; top:0; bottom:0; width:2px; background:#e2e8f0; }
+    .version-item { display:flex; align-items:flex-start; gap:12px; padding:6px 0; position:relative; }
+    .version-dot { width:18px; height:18px; border-radius:50%; background:var(--primary); border:3px solid #fff; box-shadow:0 0 0 2px var(--primary); flex-shrink:0; margin-top:2px; z-index:1; }
+    .version-dot.first { background:#16a34a; box-shadow:0 0 0 2px #16a34a; }
+    .version-dot.last { background:#f59e0b; box-shadow:0 0 0 2px #f59e0b; }
+    .version-info { flex:1; min-width:0; }
+    .version-label { font-size:12px; font-weight:600; color:#334155; }
+    .version-time { font-size:11px; color:#94a3b8; }
+
+    /* Search & List */
+    .search-row { display:flex; gap:8px; margin-bottom:12px; }
+    .search-row input { flex:1; height:36px; font-size:13px; }
+    .btn-search { height:36px; padding:0 18px; background:var(--primary); color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:500; white-space:nowrap; }
+    .btn-search:hover { background:var(--primary-hover); }
+    .result-bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:12px; color:var(--text-muted); }
+    .result-bar strong { color:var(--text); font-size:14px; }
+    .item-list { display:flex; flex-direction:column; gap:10px; }
+    .item-card {
+      background:var(--card-bg);
+      border:1px solid var(--border);
+      border-left:4px solid transparent;
+      border-radius:var(--radius);
+      padding:14px 16px;
+      box-shadow:var(--shadow);
+      cursor:pointer;
+      transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease, border-left-color .14s ease;
+    }
+    .item-card:hover { transform:translateY(-2px); box-shadow:var(--shadow-hover); border-color:rgba(99,102,241,.20); border-left-color:var(--accent); }
+    .card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:6px; }
+    .card-title { font-size:15px; font-weight:750; color:var(--text); line-height:1.45; flex:1; letter-spacing:-.01em; }
+    .card-title a { color:inherit; text-decoration:none; }
+    .card-title a:hover { color:var(--primary); text-decoration:underline; }
+    .card-meta-right { display:flex; flex-direction:column; align-items:flex-end; gap:3px; flex-shrink:0; }
+    .card-date { font-size:12px; color:var(--text-muted); white-space:nowrap; }
+    .card-docno { font-size:10px; color:var(--text-xs); font-family:monospace; }
+    .card-summary { font-size:12px; color:var(--text-muted); line-height:1.7; margin-bottom:9px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .card-footer { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
+    .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; font-weight:650; white-space:nowrap; }
+    .badge-source { background:var(--primary-light); color:var(--primary); }
+    .badge-region { background:#f0fdf4; color:#15803d; }
+    .badge-level { background:#f8fafc; color:#475569; border:1px solid #e2e8f0; }
+    .badge-status-现行 { background:#dcfce7; color:#166534; }
+    .badge-status-废止 { background:#fee2e2; color:#991b1b; }
+    .badge-status-征求意见 { background:#fef9c3; color:#854d0e; }
+    .badge-version { background:#fef3c7; color:#92400e; font-size:10px; padding:1px 6px; border-radius:4px; }
+    .badge-no-date { background:#f1f5f9; color:#94a3b8; border:1px solid #e2e8f0; font-size:10px; padding:1px 6px; border-radius:4px; }
+
+
+    .tag-chip { font-size:10px; background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:999px; border:1px solid rgba(148,163,184,.35); }
+    .tag-chip.hl { background:#fef9c3; color:#854d0e; }
+    .impact-row { display:flex; gap:4px; margin-left:2px; }
+    .impact-dot { font-size:10px; padding:1px 6px; border-radius:3px; font-weight:600; letter-spacing:.3px; }
+
+    /* Loading / Empty */
+    .loading { text-align:center; padding:60px 0; color:var(--text-muted); }
+    .spinner { width:28px; height:28px; border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .7s linear infinite; margin:0 auto 10px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .empty { text-align:center; padding:60px 0; color:var(--text-muted); }
+    .empty-icon { font-size:36px; margin-bottom:10px; }
+    .pagination { display:flex; justify-content:center; align-items:center; gap:8px; margin-top:20px; }
+    .pg-btn { padding:5px 14px; border:1px solid var(--border); background:#fff; border-radius:6px; cursor:pointer; font-size:12px; color:var(--text); }
+    .pg-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .pg-btn:not(:disabled):hover { border-color:var(--primary); color:var(--primary); }
+    .pg-info { font-size:12px; color:var(--text-muted); }
+
+    /* 数据源状态 */
+    .source-table { width:100%; border-collapse:collapse; font-size:12px; background:#fff; border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); }
+    .source-table th { background:#f8fafc; padding:10px 12px; text-align:left; font-weight:600; color:#475569; border-bottom:1px solid var(--border); white-space:nowrap; }
+    .source-table td { padding:9px 12px; border-bottom:1px solid #f1f5f9; color:#334155; vertical-align:middle; }
+    .source-table tr:last-child td { border-bottom:none; }
+    .source-table tr:hover td { background:#f8fafc; }
+    .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+    .status-dot.ok { background:#22c55e; }
+    .status-dot.error { background:#ef4444; }
+    .status-dot.never { background:#94a3b8; }
+    .log-card { background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow); }
+    .log-row { display:flex; gap:12px; padding:6px 0; border-bottom:1px solid #f1f5f9; font-size:12px; }
+    .log-row:last-child { border-bottom:none; }
+    .log-ts { color:var(--text-xs); white-space:nowrap; width:130px; flex-shrink:0; }
+    .log-src { color:var(--text-muted); flex:1; }
+    .log-num { color:var(--green); font-weight:600; width:50px; text-align:right; flex-shrink:0; }
+    .log-err { color:var(--red); font-size:11px; }
+
+    /* 通知中心 */
+    .notif-toolbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    .notif-tabs { display:flex; gap:0; }
+    .notif-tab { padding:5px 14px; font-size:12px; font-weight:600; border:1px solid var(--border); background:#fff; cursor:pointer; color:var(--text-muted); transition:all .14s; }
+    .notif-tab:first-child { border-radius:6px 0 0 6px; }
+    .notif-tab:last-child { border-radius:0 6px 6px 0; border-left:none; }
+    .notif-tab.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+    .btn-secondary {
+      padding:6px 14px;
+      background:rgba(255,255,255,.9);
+      border:1px solid var(--border);
+      border-radius:12px;
+      font-size:12px;
+      cursor:pointer;
+      color:var(--text-muted);
+      transition:transform .12s, box-shadow .12s, border-color .12s, color .12s;
+    }
+    .btn-secondary:hover { transform:translateY(-1px); box-shadow:0 12px 24px rgba(15,23,42,.08); border-color:rgba(99,102,241,.35); color:var(--text); }
+    .notif-list { display:flex; flex-direction:column; gap:6px; }
+    .notif-item { background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; display:flex; align-items:flex-start; gap:10px; cursor:pointer; transition:background .12s; }
+    .notif-item:hover { background:#f8fafc; }
+    .notif-item.unread { border-left:3px solid var(--primary); }
+    .notif-item.read { border-left:3px solid transparent; opacity:.75; }
+    .notif-dot { width:8px; height:8px; border-radius:50%; background:var(--primary); flex-shrink:0; margin-top:5px; }
+    .notif-dot.read { background:#cbd5e1; }
+    .notif-body { flex:1; min-width:0; }
+    .notif-message { font-size:13px; color:var(--text); line-height:1.5; margin-bottom:3px; }
+    .notif-meta { font-size:11px; color:var(--text-xs); display:flex; gap:8px; flex-wrap:wrap; }
+    .notif-action { flex-shrink:0; }
+    .btn-mark-read { font-size:11px; color:var(--primary); background:none; border:none; cursor:pointer; padding:3px 8px; border-radius:4px; }
+    .btn-mark-read:hover { background:var(--primary-light); }
+
+    /* 订阅管理 */
+    .sub-card { background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow); margin-bottom:10px; }
+    .sub-card-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; }
+    .sub-name { font-size:14px; font-weight:700; color:#0f172a; }
+    .sub-freq { font-size:11px; padding:2px 8px; border-radius:4px; background:#f1f5f9; color:#475569; margin-left:8px; }
+    .sub-freq.instant { background:#dbeafe; color:#1e40af; }
+    .sub-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .sub-tag { font-size:11px; padding:2px 8px; border-radius:4px; background:#f1f5f9; color:#475569; }
+    .btn-delete { padding:4px 12px; background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; border-radius:6px; font-size:11px; cursor:pointer; transition:all .14s; }
+    .btn-delete:hover { background:#fee2e2; }
+    .create-form { background:#fff; border:2px dashed var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+    .create-form.active { border-color:var(--primary); border-style:solid; }
+    .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
+    .form-field { display:flex; flex-direction:column; gap:5px; }
+    .form-field label { font-size:12px; font-weight:600; color:#475569; }
+    .form-field input, .form-field select { font-size:13px; padding:7px 10px; border:1.5px solid var(--border); border-radius:7px; outline:none; transition:border-color .15s; }
+    .form-field input:focus, .form-field select:focus { border-color:var(--primary); }
+    .form-field textarea { font-size:12px; padding:7px 10px; border:1.5px solid var(--border); border-radius:7px; outline:none; resize:vertical; min-height:60px; font-family:inherit; transition:border-color .15s; }
+    .form-field textarea:focus { border-color:var(--primary); }
+    .form-hint { font-size:11px; color:var(--text-xs); margin-top:3px; }
+    .form-section { margin-bottom:16px; }
+    .form-section-title { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.6px; margin-bottom:8px; }
+    .btn-create { padding:9px 20px; background:var(--primary); color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; transition:background .14s; }
+    .btn-create:hover { background:var(--primary-hover); }
+    .btn-create:disabled { opacity:.6; cursor:not-allowed; }
+    .btn-cancel { padding:9px 16px; background:#f8fafc; border:1px solid var(--border); color:var(--text-muted); border-radius:8px; font-size:13px; cursor:pointer; transition:all .14s; margin-right:8px; }
+    .btn-cancel:hover { background:#e2e8f0; }
+    .smtp-hint { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px 14px; font-size:12px; color:#166534; margin-bottom:12px; }
+    .smtp-warn { background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:12px; color:#854d0e; margin-bottom:12px; }
+
+    /* Public lock notice */
+    .lock-notice { text-align:center; padding:20px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; margin-top:20px; }
+    .lock-notice p { font-size:13px; color:#64748b; margin-bottom:10px; }
+
+    /* ── Intel Panel ── */
+    .intel-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-bottom:16px; }
+    .intel-card { background:#fff; border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+    .intel-card-header { padding:10px 14px 8px; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:space-between; gap:8px; border-bottom:1px solid var(--border); }
+    .intel-card-body { padding:10px 14px; }
+    .intel-item { display:flex; align-items:flex-start; gap:8px; padding:6px 0; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background .12s; }
+    .intel-item:last-child { border-bottom:none; }
+    .intel-item:hover { background:#f8fafc; margin:0 -14px; padding:6px 14px; }
+    .intel-item-title { font-size:12px; color:#0f172a; line-height:1.45; flex:1; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+    .intel-item-meta { font-size:10px; color:#94a3b8; white-space:nowrap; flex-shrink:0; }
+    .coverage-bar-bg { background:#e2e8f0; border-radius:6px; height:10px; overflow:hidden; margin:8px 0 4px; }
+    .coverage-bar-fill { height:100%; border-radius:6px; background:linear-gradient(90deg,#10b981,#2563eb); transition:width .5s; }
+    .coverage-pct { font-size:22px; font-weight:800; color:#0f172a; }
+    .week-buckets { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:8px; }
+    .week-bucket { background:#f8fafc; border:1px solid var(--border); border-radius:6px; padding:8px 6px; text-align:center; }
+    .week-bucket-v { font-size:20px; font-weight:800; color:#0f172a; }
+    .week-bucket-l { font-size:10px; color:#64748b; margin-top:2px; }
+    .kw-tags { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; }
+    .kw-tag { font-size:10px; padding:1px 7px; border-radius:4px; font-weight:600; }
+    .kw-opp { background:#d1fae5; color:#065f46; }
+    .kw-risk { background:#fee2e2; color:#991b1b; }
+    .intel-empty { font-size:12px; color:#94a3b8; padding:10px 0; text-align:center; }
+
+    /* ── 全文搜索视图 ── */
+    .fts-wrap { padding:0; }
+    .fts-hero { background:linear-gradient(135deg,#0f172a,#1e3a8a); color:#fff; padding:24px 20px 20px; border-radius:var(--radius); margin-bottom:16px; }
+    .fts-hero-title { font-size:18px; font-weight:800; margin-bottom:4px; }
+    .fts-hero-sub { font-size:12px; opacity:.75; margin-bottom:14px; }
+    .fts-search-row { display:flex; gap:8px; }
+    .fts-input { flex:1; padding:10px 14px; border-radius:8px; border:none; font-size:14px; color:#0f172a; outline:none; }
+    .fts-btn { padding:10px 20px; background:#2563eb; color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; transition:background .15s; }
+    .fts-btn:hover { background:#1d4ed8; }
+    .fts-btn:disabled { opacity:.6; cursor:not-allowed; }
+    .fts-result-item { background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow); cursor:pointer; transition:box-shadow .14s,border-left-color .14s; border-left:3px solid transparent; margin-bottom:10px; }
+    .fts-result-item:hover { box-shadow:var(--shadow-hover); border-left-color:var(--primary); }
+    .fts-result-title { font-size:14px; font-weight:600; color:#0f172a; margin-bottom:6px; line-height:1.5; }
+    .fts-result-snippet { font-size:12px; color:#475569; line-height:1.7; margin-bottom:8px; background:#f8fafc; border-radius:6px; padding:8px 10px; border-left:3px solid #cbd5e1; }
+    .fts-result-meta { display:flex; flex-wrap:wrap; gap:6px; font-size:11px; }
+    .fts-hint { font-size:12px; color:#94a3b8; margin-top:6px; }
+
+    /* ── Diff 面板 ── */
+    .diff-wrap { margin-top:14px; }
+    .diff-toggle { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#f8fafc; border:1px solid var(--border); border-radius:8px; cursor:pointer; font-size:12px; font-weight:600; color:#475569; transition:all .14s; }
+    .diff-toggle:hover { background:#e2e8f0; }
+    .diff-body { margin-top:10px; background:#0f172a; border-radius:8px; overflow:auto; max-height:360px; padding:12px 14px; font-family:monospace; font-size:12px; line-height:1.6; }
+    .diff-line-add    { color:#4ade80; white-space:pre; }
+    .diff-line-del    { color:#f87171; white-space:pre; }
+    .diff-line-info   { color:#60a5fa; white-space:pre; }
+    .diff-line-hunk   { color:#94a3b8; white-space:pre; }
+    .diff-line-normal { color:#94a3b8; white-space:pre; }
+    .diff-no-snap { background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:12px; color:#92400e; margin-top:10px; }
+
+    /* ── 导出清单按钮 ── */
+    .btn-checklist { padding:5px 14px; background:#fff; border:1.5px solid #86efac; color:#16a34a; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:all .14s; }
+    .btn-checklist:hover { background:#f0fdf4; }
+
+    /* ── AI 解读卡 ── */
+    .analysis-card { margin-top:18px; border:1.5px solid #c7d2fe; border-radius:12px; overflow:hidden; background:#fff; }
+    .analysis-card-header { background:linear-gradient(135deg,#4f46e5,#2563eb); color:#fff; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .analysis-card-title { font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; }
+    .analysis-card-meta { font-size:10px; opacity:.85; }
+    .analysis-card-body { padding:14px 16px; }
+    .analysis-one-liner { font-size:14px; font-weight:700; color:#1e293b; margin-bottom:10px; line-height:1.5; }
+    .stance-badge { display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; margin-bottom:12px; }
+    .stance-positive { background:#dcfce7; color:#166534; }
+    .stance-negative { background:#fee2e2; color:#991b1b; }
+    .stance-neutral  { background:#f1f5f9; color:#475569; }
+    .stance-mixed    { background:#fef3c7; color:#92400e; }
+    .confidence-bar-wrap { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+    .confidence-bar-bg { flex:1; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden; }
+    .confidence-bar-fill { height:100%; background:linear-gradient(90deg,#4f46e5,#2563eb); border-radius:3px; transition:width .5s; }
+    .confidence-label { font-size:11px; color:#64748b; white-space:nowrap; }
+    .analysis-section { margin-bottom:12px; }
+    .analysis-section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:#64748b; margin-bottom:6px; display:flex; align-items:center; gap:5px; }
+    .analysis-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+    .analysis-list li { font-size:12px; color:#334155; padding:5px 10px; background:#f8fafc; border-radius:6px; border-left:3px solid #c7d2fe; line-height:1.55; }
+    .analysis-list li strong { color:#1e293b; }
+    .action-item { background:#f0fdf4; border-left-color:#86efac; }
+    .action-item .action-role { display:inline-block; background:#dcfce7; color:#166534; border-radius:4px; padding:0 6px; font-size:10px; font-weight:700; margin-right:5px; }
+    .action-item .action-deadline { font-size:10px; color:#64748b; margin-left:4px; }
+    .action-item .action-effort { font-size:10px; color:#94a3b8; margin-left:4px; font-style:italic; }
+    .evidence-item { background:#fefce8; border-left-color:#fde047; font-style:italic; }
+    .evidence-item .ev-reason { font-style:normal; color:#78350f; font-size:11px; margin-top:3px; }
+    .segment-chips { display:flex; flex-wrap:wrap; gap:5px; }
+    .segment-chip { background:#e0e7ff; color:#3730a3; border-radius:12px; padding:2px 10px; font-size:11px; font-weight:500; }
+    .kp-item { background:#f0f9ff; border-left:3px solid #7dd3fc; }
+    .kp-item .kp-why { font-size:11px; color:#0369a1; margin-top:2px; }
+    .opp-item { background:#f0fdf4; border-left:3px solid #86efac; }
+    .risk-item { background:#fef2f2; border-left:3px solid #fca5a5; }
+    .analysis-actions-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0; }
+    .btn-regen { padding:5px 14px; background:#4f46e5; color:#fff; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:background .14s; }
+    /* ── 收藏 & 对比 ── */
+    .btn-bookmark { padding:5px 12px; background:#fff; border:1.5px solid #e2e8f0; border-radius:7px; font-size:13px; cursor:pointer; transition:all .14s; color:#64748b; }
+    .btn-bookmark.active { border-color:#f59e0b; background:#fffbeb; color:#d97706; }
+    .btn-bookmark:hover { border-color:#fbbf24; }
+    .btn-compare-add { padding:5px 12px; background:#fff; border:1.5px solid #e2e8f0; border-radius:7px; font-size:13px; cursor:pointer; transition:all .14s; color:#64748b; }
+    .btn-compare-add.selected { border-color:#4f46e5; background:#eef2ff; color:#4f46e5; }
+    .btn-compare-add:hover { border-color:#a5b4fc; }
+    .compare-bar { position:fixed; bottom:0; left:0; right:0; background:#1e293b; color:#fff; padding:12px 24px; display:flex; align-items:center; gap:12px; z-index:1000; box-shadow:0 -4px 20px rgba(0,0,0,.25); }
+    .compare-bar-item { background:#334155; border-radius:8px; padding:6px 12px; font-size:12px; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .btn-compare-go { padding:8px 20px; background:#4f46e5; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; }
+    .btn-compare-clear { padding:6px 12px; background:#475569; color:#fff; border:none; border-radius:8px; font-size:12px; cursor:pointer; }
+    .compare-result { background:#f8fafc; border-radius:10px; padding:18px 20px; margin-top:16px; }
+    .compare-section { margin-bottom:14px; }
+    .compare-section h4 { font-size:13px; font-weight:700; color:#374151; margin:0 0 6px; }
+    .compare-section ul { margin:0; padding-left:18px; }
+    .compare-section li { font-size:13px; color:#475569; margin-bottom:4px; line-height:1.5; }
+    .bookmark-card { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; margin-bottom:10px; transition:box-shadow .14s; }
+    .bookmark-card:hover { box-shadow:0 2px 12px rgba(0,0,0,.08); }
+    .bookmark-empty { text-align:center; color:#94a3b8; padding:60px 0; font-size:14px; }
+    .btn-regen:hover { background:#4338ca; }
+    .btn-regen:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-export-md { padding:5px 14px; background:#fff; border:1.5px solid #c7d2fe; color:#4f46e5; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:all .14s; }
+    .btn-export-md:hover { background:#eef2ff; }
+    .analysis-error { background:#fef2f2; border:1px solid #fca5a5; border-radius:8px; padding:10px 14px; font-size:12px; color:#991b1b; margin-top:10px; }
+    .analysis-loading { display:flex; align-items:center; gap:10px; padding:16px 0; color:#64748b; font-size:13px; }
+    .analysis-trigger-row { margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .btn-gen-mini { padding:6px 16px; background:#4f46e5; color:#fff; border:none; border-radius:7px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:background .14s; }
+    .btn-gen-mini:hover { background:#4338ca; }
+    .btn-gen-mini:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-gen-pro { padding:6px 16px; background:#fff; border:1.5px solid #6366f1; color:#4f46e5; border-radius:7px; font-size:12px; font-weight:700; cursor:pointer; transition:all .14s; }
+    .btn-gen-pro:hover { background:#eef2ff; }
+    .btn-gen-pro:disabled { opacity:.5; cursor:not-allowed; }
+    /* ── 用户画像问卷弹框 ── */
+    .profile-modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:2000;backdrop-filter:blur(2px); }
+    .profile-modal-box { background:#fff;border-radius:14px;padding:24px 26px;width:440px;max-width:calc(100vw - 32px);box-shadow:0 20px 60px rgba(0,0,0,.18); }
+    .profile-q-title { font-size:13px;font-weight:700;color:#374151;margin:0 0 8px; }
+    .profile-chips { display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px; }
+    .profile-chip { padding:5px 12px;border-radius:20px;border:1.5px solid #e2e8f0;background:#f8fafc;font-size:12px;color:#475569;cursor:pointer;transition:all .14s;user-select:none; }
+    .profile-chip.active { border-color:#4f46e5;background:#eef2ff;color:#4f46e5;font-weight:600; }
+    .profile-chip:hover { border-color:#a5b4fc;background:#f5f3ff; }
+    .profile-modal-footer { display:flex;gap:10px;margin-top:18px;justify-content:flex-end; }
+    .btn-profile-skip { padding:7px 16px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;color:#64748b;font-size:12px;cursor:pointer; }
+    .btn-profile-start { padding:7px 18px;border:none;border-radius:8px;background:#4f46e5;color:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:background .14s; }
+    .btn-profile-start:hover { background:#4338ca; }
+    .btn-profile-start:disabled { opacity:.45;cursor:not-allowed; }
+    .analysis-no-key { background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:12px; color:#92400e; margin-top:10px; }
+    .analysis-no-key code { background:#fef3c7; padding:1px 5px; border-radius:3px; font-family:monospace; font-size:11px; }
+
+    @media (max-width:768px) {
+      .app-shell { flex-direction:column; padding:10px; gap:0; }
+      .main-layout { flex-direction:column; padding:10px; }
+      .sidebar { width:100%; position:static; max-height:none; }
+      .stat-cards { grid-template-columns:repeat(2, minmax(0,1fr)); }
+      .form-row { grid-template-columns:1fr; }
+      .public-stats-row { gap:20px; }
+    }
+
+    /* ── 手机端响应式修复 (max-width: 768px) ── */
+    @media (max-width:768px) {
+      /* Header：单行（仅已登录页收敛） */
+      .app-header { height:48px; padding:0 12px; flex-wrap:nowrap; gap:10px; }
+      .app-header .header-left { flex:1; min-width:0; }
+      .hamburger-btn { display:inline-flex; }
+      .logo { font-size:14px; min-width:0; }
+      .logo-sub { display:none; }
+      .app-header .header-stats { display:none; }
+      .app-header .header-time { display:none; }
+      .app-header .header-right { gap:10px; }
+      .user-name { display:none; }
+      .btn-logout { padding:5px 10px; border-radius:10px; font-size:11px; }
+
+      /* Sidebar → Drawer（不占布局空间） */
+      .nav-sidebar {
+        position:fixed;
+        left:0;
+        top:0;
+        height:100%;
+        width:240px;
+        max-height:none;
+        transform:translateX(-100%);
+        transition:transform .25s ease;
+        z-index:500;
+        border-radius:0 16px 16px 0;
+        box-shadow:0 24px 64px rgba(2,6,23,.45);
+      }
+      .nav-sidebar.open { transform:translateX(0); }
+      .sidebar-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:499; }
+
+      /* stat-card：两列 + 不截断 */
+      .stat-cards { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+      .stat-card { min-width:0; overflow:hidden; padding:12px; }
+      .stat-card-label { font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .stat-card-value { font-size:22px; }
+      .stat-card-sub { font-size:10px; }
+
+      /* View tabs：横向滚动 */
+      .view-tabs { overflow-x:auto; flex-wrap:nowrap !important; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:2px; }
+      .view-tabs::-webkit-scrollbar { display:none; }
+      .view-tab { flex-shrink:0; padding:6px 10px; font-size:12px; }
+
+      /* 趋势图：横向滚动 */
+      .chart-container { overflow-x:auto; -webkit-overflow-scrolling:touch; height:auto !important; min-height:180px; }
+      .chart-container svg { min-width:500px; }
+
+      /* CompareBar 激活时底部留白 */
+      body.has-compare-bar .main-layout { padding-bottom:72px; }
+
+      /* 整体 padding 手机友好 */
+      .main-layout { padding:6px !important; gap:8px; }
+      .filter-card { padding:10px; }
+      .chart-wrap { padding:10px; }
+      .keyword-wrap { padding:10px; }
+      .public-banner { padding:20px 12px 16px; }
+      .item-card { padding:10px 12px; }
+      .log-card { padding:10px 12px; }
+      .latest-item { padding:8px 12px; }
+      .latest-header { padding:10px 12px 8px; }
+      .sub-card { padding:12px 14px; }
+      .source-table th, .source-table td { padding:7px 8px; }
+
+      /* Auth Modal */
+      .modal-box { width:calc(100vw - 24px); max-width:none; padding:18px 16px; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+const API = "";
+
+const CATEGORY_TYPES = [
+  "政策/规划/指导意见","通知/办法/细则/实施方案","市场规则","标准规范",
+  "并网与调度","安全消防","验收/检测/认证","补贴资金/奖补",
+  "示范项目/试点清单","招标公告","中标结果/候选人公示","事故通报/风险预警/执法处罚",
+];
+const CAT_COLORS = ["#3b82f6","#6366f1","#0ea5e9","#0d9488","#10b981","#ef4444","#f97316","#16a34a","#8b5cf6","#dc2626","#b45309","#be123c"];
+const CAT_BG    = ["#eff6ff","#eef2ff","#f0f9ff","#f0fdfa","#f0fdf4","#fef2f2","#fff7ed","#f0fdf4","#faf5ff","#fef2f2","#fffbeb","#fff1f2"];
+const TIME_OPTIONS   = [{label:"7天",days:7},{label:"30天",days:30},{label:"90天",days:90},{label:"180天",days:180},{label:"1年",days:365}];
+const STATUS_OPTIONS = ["现行","征求意见","废止"];
+const LEVEL_OPTIONS  = ["国家","省","市","行业"];
+const IMPACT_OPTIONS = ["电站开发商","储能系统集成商","设备制造商","电网公司","检测认证机构","运维单位","消防部门"];
+const IMPACT_STYLE   = {
+  "电站开发商":    {bg:"#dbeafe",c:"#1e40af"},
+  "储能系统集成商":{bg:"#e0e7ff",c:"#3730a3"},
+  "设备制造商":    {bg:"#f3e8ff",c:"#6b21a8"},
+  "电网公司":      {bg:"#d1fae5",c:"#065f46"},
+  "检测认证机构":  {bg:"#fef3c7",c:"#92400e"},
+  "运维单位":      {bg:"#fee2e2",c:"#991b1b"},
+  "消防部门":      {bg:"#fce7f3",c:"#9d174d"},
+};
+const TAGS_PRESET = ["储能主题","新能源","电力市场","并网","锂电","虚拟电厂","调峰调频","补贴","招标","标准"];
+const BUCKET_OPTS = [{v:"policy",l:"政策/规划"},{v:"subsidy",l:"补贴/奖补"},{v:"tender",l:"招标/采购"},{v:"compliance",l:"合规/标准"}];
+const REGION_LIST = ["全国","北京","天津","河北","山西","内蒙古","辽宁","吉林","黑龙江","上海","江苏","浙江","安徽","福建","江西","山东","河南","湖北","湖南","广东","广西","海南","重庆","四川","贵州","云南","西藏","陕西","甘肃","青海","宁夏","新疆"];
+
+function heatColor(val,max) {
+  if(!val||val===0) return {bg:"#f8fafc",color:"#94a3b8"};
+  const r = Math.min(val/Math.max(max,1),1);
+  if(r<0.2)  return {bg:"#dbeafe",color:"#1e40af"};
+  if(r<0.45) return {bg:"#93c5fd",color:"#1e3a8a"};
+  if(r<0.7)  return {bg:"#3b82f6",color:"#fff"};
+  return {bg:"#1d4ed8",color:"#fff"};
+}
+
+function fmtDate(d) { return d?d.slice(0,10):"-"; }
+function fmtTs(ts) {
+  if(!ts) return "-";
+  const d = new Date(ts.replace(" ","T"));
+  if(isNaN(d)) return ts.slice(0,16);
+  const now = new Date();
+  const diff = Math.floor((now-d)/60000);
+  if(diff<1)  return "刚刚";
+  if(diff<60) return `${diff}分钟前`;
+  if(diff<1440) return `${Math.floor(diff/60)}小时前`;
+  return ts.slice(0,16);
+}
+function toggle(arr,v) { return arr.includes(v)?arr.filter(x=>x!==v):[...arr,v]; }
+
+// ── AuthModal ─────────────────────────────────────────────
+function AuthModal({onLogin, onClose}) {
+  const [tab,setTab]     = useState("login");
+  const [user,setUser]   = useState("");
+  const [pass,setPass]   = useState("");
+  const [conf,setConf]   = useState("");
+  const [err,setErr]     = useState("");
+  const [busy,setBusy]   = useState(false);
+  async function submit(e) {
+    e.preventDefault(); setErr("");
+    if(tab==="register") {
+      if(pass!==conf) { setErr("两次密码不一致"); return; }
+      if(pass.length<6) { setErr("密码至少6位"); return; }
+    }
+    setBusy(true);
+    try {
+      const url = tab==="login"?"/api/auth/login":"/api/auth/register";
+      const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({username:user.trim(),password:pass})});
+      const d = await r.json();
+      if(!r.ok) { setErr(d.detail||"操作失败"); return; }
+      onLogin(d.username);
+    } catch(ex) { setErr("网络错误："+ex.message); } finally { setBusy(false); }
+  }
+  return (
+    <div className="modal-overlay" onClick={onClose||undefined}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="modal-logo">⚡</div>
+        <div className="modal-title">储能政策情报看板</div>
+        <div className="modal-sub">登录以解锁全量数据 · 筛选 · 订阅 · 导出</div>
+        <div className="auth-tabs">
+          <div className={`auth-tab ${tab==="login"?"active":""}`} onClick={()=>{setTab("login");setErr("");}}>登录</div>
+          <div className={`auth-tab ${tab==="register"?"active":""}`} onClick={()=>{setTab("register");setErr("");}}>注册</div>
+        </div>
+        <form onSubmit={submit}>
+          {err && <div className="auth-error">⚠️ {err}</div>}
+          <div className="form-group"><label className="form-label">用户名</label><input className="form-input" type="text" autoFocus value={user} onChange={e=>setUser(e.target.value)} required minLength={2} placeholder="输入用户名"/></div>
+          <div className="form-group"><label className="form-label">密码</label><input className="form-input" type="password" value={pass} onChange={e=>setPass(e.target.value)} required placeholder={tab==="register"?"至少6位":"输入密码"}/></div>
+          {tab==="register" && <div className="form-group"><label className="form-label">确认密码</label><input className="form-input" type="password" value={conf} onChange={e=>setConf(e.target.value)} required placeholder="再次输入密码"/></div>}
+          <button className="btn-primary" type="submit" disabled={busy}>{busy?"处理中…":tab==="login"?"登录":"注册并登录"}</button>
+        </form>
+        <div className="auth-hint">{tab==="login"?<>没有账号？<span style={{color:"#2563eb",cursor:"pointer"}} onClick={()=>{setTab("register");setErr("");}}>立即注册</span></>:<>已有账号？<span style={{color:"#2563eb",cursor:"pointer"}} onClick={()=>{setTab("login");setErr("");}}>去登录</span></>}</div>
+        {onClose && <div style={{textAlign:"center",marginTop:12}}><button className="btn-cancel" onClick={onClose} style={{width:"100%"}}>暂不登录，继续浏览</button></div>}
+      </div>
+    </div>
+  );
+}
+
+// ── TrendChart（纯 SVG，无第三方依赖）──────────────────────
+function TrendChart() {
+  const [monthsN,setMonthsN] = useState(12);
+  const [data,setData]       = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [err,setErr]         = useState("");
+
+  const wrapRef = useRef(null);
+  const [hover,setHover]     = useState(null); // {x,y,mm,tag,v}
+
+  const TAGS = [
+    {k:"储能主题", c:"#3b82f6"},
+    {k:"新能源",   c:"#22c55e"},
+    {k:"电力市场", c:"#f97316"},
+    {k:"补贴",     c:"#eab308"},
+    {k:"招标",     c:"#a855f7"},
+  ];
+
+  useEffect(()=>{
+    let alive = true;
+    setLoading(true); setErr("");
+    fetch(`/api/stats/trend?months=${monthsN}`,{credentials:"include"})
+      .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(new Error(d.detail||"加载失败"))))
+      .then(d=>{ if(alive) setData(d); })
+      .catch(e=>{ if(alive){ setErr(e.message||"加载失败"); setData(null);} })
+      .finally(()=>{ if(alive) setLoading(false); });
+    return ()=>{ alive=false; };
+  },[monthsN]);
+
+  const months = data?.months || [];
+  const series = data?.series || {};
+
+  const rawMaxV = Math.max(
+    1,
+    ...TAGS.flatMap(t => (series[t.k] || []).map(x => Number(x||0)))
+  );
+
+  function niceStep(x){
+    const v = Math.max(1e-9, Number(x||0));
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const r = v / p;
+    if(r <= 1) return 1*p;
+    if(r <= 2) return 2*p;
+    if(r <= 5) return 5*p;
+    return 10*p;
+  }
+
+  const tickCount = 4;
+  const stepV = niceStep(rawMaxV / tickCount);
+  const maxV  = Math.ceil(rawMaxV / stepV) * stepV;
+  const ticks = Array.from({length: tickCount+1}, (_,i)=> maxV - i*stepV);
+
+  const n = months.length || 1;
+  const s = TAGS.length;
+  const M = {l:44, r:14, t:18, b:48};
+  // Dynamic width: at least 52px per group so bars are always readable
+  const minGroupPx = 52;
+  const W = Math.max(700, n * minGroupPx + M.l + M.r);
+  const H = 380;
+  const innerW = W - M.l - M.r;
+  const innerH = H - M.t - M.b;
+
+  const step = innerW / n;
+  const groupW = step * 0.88;
+  const barW = groupW / s;
+
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
+  const showEvery = months.length > 12 ? 2 : (isMobile && months.length > 6 ? 2 : 1);
+
+  function yOf(v){
+    const vv = Math.max(0, Number(v||0));
+    return M.t + innerH - (vv / Math.max(maxV, 1)) * innerH;
+  }
+
+  function handleMove(e, mm, tag, v){
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if(!rect) return;
+    setHover({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      mm, tag, v,
+    });
+  }
+
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title-row">
+        <span style={{fontSize:13,fontWeight:800,color:"#0f172a"}}>📈 月度趋势（按主题）</span>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
+            {TAGS.map(t=>(
+              <span key={t.k} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:11,color:"#64748b"}}>
+                <span style={{width:10,height:10,borderRadius:2,background:t.c,display:"inline-block"}}/>
+                {t.k}
+              </span>
+            ))}
+          </div>
+          <div className="chart-seg">
+            {[6,12,24].map(m=>(
+              <button key={m} className={`chart-seg-btn ${monthsN===m?"active":""}`} onClick={()=>setMonthsN(m)}>
+                近{m}个月
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="chart-subtitle">近{monthsN}个月储能相关政策发布趋势（按主题分类）</div>
+
+      {err && <div className="auth-error" style={{marginBottom:10}}>⚠️ {err}</div>}
+
+      {loading ? (
+        <div className="loading" style={{padding:"8px 0"}}><div className="spinner"/>加载趋势…</div>
+      ) : (!months || months.length===0) ? (
+        <div style={{color:"#94a3b8",fontSize:12}}>暂无趋势数据</div>
+      ) : (
+        <div className="chart-container" style={{height:"auto",minHeight:180,overflowX:"auto",overflowY:"hidden"}} ref={wrapRef} onMouseLeave={()=>setHover(null)}>
+          {hover && (
+            <div className="chart-tooltip" style={{left:hover.x, top:hover.y}}>
+              {hover.mm} · {hover.tag}: {hover.v}
+            </div>
+          )}
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            width={W}
+            height={H}
+            role="img"
+            aria-label="月度趋势柱状图"
+            style={{display:"block"}}
+          >
+            {/* grid + y labels */}
+            {ticks.map((v,i)=>{
+              const y = yOf(v);
+              return (
+                <g key={i}>
+                  <line x1={M.l} x2={W-M.r} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1"/>
+                  <text x={M.l-10} y={y+4} textAnchor="end" fontSize="10" fill="#94a3b8">{v}</text>
+                </g>
+              );
+            })}
+
+            {/* bars */}
+            {months.map((mm, i)=>{
+              const gx = M.l + i*step + (step - groupW)/2;
+              return (
+                <g key={mm}>
+                  {TAGS.map((t, j)=>{
+                    const v = Number(((series[t.k] || [])[i] || 0));
+                    const y = yOf(v);
+                    const h = M.t + innerH - y;
+                    const x = gx + j*barW;
+                    return (
+                      <rect
+                        key={t.k}
+                        x={x}
+                        y={y}
+                        width={Math.max(1, barW-1)}
+                        height={h}
+                        fill={t.c}
+                        opacity={(hover && hover.mm===mm && hover.tag===t.k) ? 1 : 0.9}
+                        rx={4}
+                        style={{cursor:"pointer"}}
+                        onMouseMove={(e)=>handleMove(e, mm, t.k, v)}
+                        onMouseEnter={(e)=>handleMove(e, mm, t.k, v)}
+                        onMouseLeave={()=>setHover(null)}
+                      />
+                    );
+                  })}
+
+                  {/* x label */}
+                  {(i % showEvery === 0) && (
+                    <text
+                      x={M.l + i*step + step/2}
+                      y={H-14}
+                      textAnchor="middle"
+                      fontSize="10"
+                      fill="#64748b"
+                    >
+                      {mm.slice(0,7)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* axis */}
+            <line x1={M.l} x2={M.l} y1={M.t} y2={M.t+innerH} stroke="#cbd5e1" strokeWidth="1"/>
+            <line x1={M.l} x2={W-M.r} y1={M.t+innerH} y2={M.t+innerH} stroke="#cbd5e1" strokeWidth="1"/>
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── TopKeywords ────────────────────────────────────────────
+function TopKeywords({keywords,onTagClick}) {
+  if(!keywords||keywords.length===0) return null;
+  const maxC = Math.max(...keywords.map(k=>k.count),1);
+  const COLORS = ["#2563eb","#0d9488","#d97706","#16a34a","#8b5cf6","#dc2626","#0ea5e9","#f97316","#6366f1","#be123c"];
+  return (
+    <div className="keyword-wrap">
+      <div className="dash-section-title">🏷️ Top关键词 <span className="updated">近90天</span></div>
+      <div className="keyword-cloud">
+        {keywords.map((k,i)=>{
+          const r = k.count/maxC;
+          const sz = Math.round(10 + r*8);
+          const op = 0.5 + r*0.5;
+          const color = COLORS[i%COLORS.length];
+          return (
+            <span
+              key={k.tag}
+              className="keyword-chip"
+              onClick={onTagClick?(()=>onTagClick(k.tag)):undefined}
+              style={{
+                fontSize:sz,color,borderColor:color+"44",background:color+"11",opacity:op,
+                cursor:onTagClick?"pointer":"default",
+              }}
+              title={onTagClick?"点击查看该标签的政策列表":undefined}
+            >
+              {k.tag} <span style={{fontSize:sz-2,opacity:.7}}>{k.count}</span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── IntelPanel（机会雷达 / 风险预警 / 解读覆盖率 / 本周新增）──────
+function IntelPanel() {
+  const [data,setData]       = useState(null);
+  const [loading,setLoading] = useState(true);
+
+  useEffect(()=>{
+    fetch("/api/dashboard/intel",{credentials:"include"})
+      .then(r=>r.json()).then(setData).catch(console.error).finally(()=>setLoading(false));
+  },[]);
+
+  if(loading) return <div className="loading" style={{padding:"20px 0"}}><div className="spinner"/>加载智能面板…</div>;
+  if(!data) return null;
+
+  const {coverage,opportunity,risk,week_new} = data;
+  const confPct = coverage.pct;
+
+  function IntelList({items,emptyMsg}) {
+    if(!items||items.length===0) return <div className="intel-empty">{emptyMsg}</div>;
+    return items.map(it=>(
+      <div key={it.id} className="intel-item" onClick={()=>window.open(it.url,"_blank")}>
+        <div className="intel-item-title" title={it.title}>{it.title}</div>
+        <div className="intel-item-meta">{it.date?it.date.slice(0,10):"-"}</div>
+      </div>
+    ));
+  }
+
+  return (
+    <div>
+      <div className="dash-section-title">🧠 智能面板 <span className="updated">SQL聚合 · 0成本</span></div>
+      <div className="intel-grid">
+
+        {/* 解读覆盖率 */}
+        <div className="intel-card">
+          <div className="intel-card-header">
+            <span>🤖 AI 解读覆盖率</span>
+            <span style={{fontSize:10,color:"#94a3b8"}}>最近100条</span>
+          </div>
+          <div className="intel-card-body">
+            <div className="coverage-pct">{confPct}%</div>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:4}}>
+              {coverage.analyzed} / {coverage.total} 条已解读
+            </div>
+            <div className="coverage-bar-bg">
+              <div className="coverage-bar-fill" style={{width:`${confPct}%`}}/>
+            </div>
+            <div style={{fontSize:11,color:"#94a3b8"}}>
+              {confPct >= 80 ? "✅ 覆盖良好" : confPct >= 40 ? "⚡ 可继续补充解读" : "💡 尚有大量待解读"}
+            </div>
+          </div>
+        </div>
+
+        {/* 本周新增 */}
+        <div className="intel-card">
+          <div className="intel-card-header">
+            <span>📅 本周新增</span>
+            <span style={{fontSize:10,color:"#94a3b8"}}>近7天</span>
+          </div>
+          <div className="intel-card-body">
+            <div style={{fontSize:22,fontWeight:800,color:"#0f172a",marginBottom:4}}>
+              {week_new.total} <span style={{fontSize:12,fontWeight:400,color:"#64748b"}}>条</span>
+            </div>
+            <div className="week-buckets">
+              {[
+                {k:"policy",l:"政策",color:"#1e40af",bg:"#dbeafe"},
+                {k:"subsidy",l:"补贴",color:"#065f46",bg:"#d1fae5"},
+                {k:"tender",l:"招标",color:"#92400e",bg:"#fef3c7"},
+                {k:"compliance",l:"合规",color:"#991b1b",bg:"#fee2e2"},
+              ].map(b=>(
+                <div key={b.k} className="week-bucket" style={{background:b.bg,borderColor:b.color+"44"}}>
+                  <div className="week-bucket-v" style={{color:b.color}}>{week_new[b.k]||0}</div>
+                  <div className="week-bucket-l" style={{color:b.color}}>{b.l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 机会雷达 */}
+        <div className="intel-card">
+          <div className="intel-card-header">
+            <span>🎯 机会雷达</span>
+            <span style={{fontSize:10,color:"#94a3b8"}}>近30天 · {opportunity.count}条</span>
+          </div>
+          <div className="intel-card-body">
+            <div className="kw-tags">
+              {opportunity.keywords.map(k=><span key={k} className="kw-tag kw-opp">{k}</span>)}
+            </div>
+            <IntelList items={opportunity.items} emptyMsg="近30天暂无机会信号"/>
+          </div>
+        </div>
+
+        {/* 风险预警 */}
+        <div className="intel-card">
+          <div className="intel-card-header">
+            <span>⚠️ 风险预警</span>
+            <span style={{fontSize:10,color:"#94a3b8"}}>近30天 · {risk.count}条</span>
+          </div>
+          <div className="intel-card-body">
+            <div className="kw-tags">
+              {risk.keywords.map(k=><span key={k} className="kw-tag kw-risk">{k}</span>)}
+            </div>
+            <IntelList items={risk.items} emptyMsg="近30天暂无风险信号"/>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ── Dashboard 可视化（纯 SVG / 0 依赖）────────────────────
+function _fmtPct(n){ return (Math.round(n*10)/10).toFixed(1); }
+function _arcPath(cx, cy, r0, r1, a0, a1) {
+  // a0/a1 in degrees, 0deg at 12 o'clock
+  const toRad = d => (d - 90) * Math.PI / 180;
+  const p = (r, a) => ({x: cx + r*Math.cos(toRad(a)), y: cy + r*Math.sin(toRad(a))});
+  const o0 = p(r1, a0), o1 = p(r1, a1);
+  const i1 = p(r0, a1), i0 = p(r0, a0);
+  const large = (a1 - a0) > 180 ? 1 : 0;
+  return [
+    `M ${o0.x} ${o0.y}`,
+    `A ${r1} ${r1} 0 ${large} 1 ${o1.x} ${o1.y}`,
+    `L ${i1.x} ${i1.y}`,
+    `A ${r0} ${r0} 0 ${large} 0 ${i0.x} ${i0.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function CategoryDonut({counts}) {
+  const [tip,setTip] = useState(null);
+  const entries = CATEGORY_TYPES.map((c,i)=>({
+    key:c,
+    label:c,
+    count: Number(counts?.[c]||0),
+    color: CAT_COLORS[i] || "#64748b",
+  })).filter(x=>x.count>0);
+  const total = entries.reduce((s,x)=>s+x.count,0) || 1;
+
+  const w=340,h=180,cx=92,cy=92,r1=70,r0=42;
+  let acc=0;
+  const segs = entries.map(e=>{
+    const start = acc;
+    const sweep = e.count/total*360;
+    acc += sweep;
+    return {...e, start, end: start+sweep};
+  });
+
+  return (
+    <div style={{position:"relative"}}>
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`}>
+        <g>
+          {segs.map(s=>(
+            <path
+              key={s.key}
+              d={_arcPath(cx,cy,r0,r1,s.start,s.end)}
+              fill={s.color}
+              opacity={0.92}
+              stroke="#ffffff"
+              strokeWidth="1"
+              onMouseMove={e=>{
+                const rect=e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                const x=e.clientX-rect.left, y=e.clientY-rect.top;
+                const pct = (s.count/total*100);
+                setTip({x,y,text:`${s.label}：${s.count} 条（${_fmtPct(pct)}%）`});
+              }}
+              onMouseLeave={()=>setTip(null)}
+            />
+          ))}
+        </g>
+        <circle cx={cx} cy={cy} r={r0-8} fill="#ffffff" />
+        <text x={cx} y={cy-2} textAnchor="middle" style={{fontSize:20,fontWeight:900,fill:"#0f172a"}}>{entries.reduce((s,x)=>s+x.count,0)}</text>
+        <text x={cx} y={cy+18} textAnchor="middle" style={{fontSize:11,fontWeight:650,fill:"#94a3b8"}}>近365天</text>
+
+        {/* Legend */}
+        <g transform={`translate(175,22)`}>
+          {entries.slice(0,7).map((e,idx)=>(
+            <g key={e.key} transform={`translate(0,${idx*20})`}>
+              <rect x="0" y="4" width="10" height="10" rx="3" fill={e.color} />
+              <text x="16" y="13" style={{fontSize:11,fill:"#475569",fontWeight:650}}>{e.label}</text>
+              <text x="130" y="13" textAnchor="end" style={{fontSize:11,fill:"#94a3b8",fontVariantNumeric:"tabular-nums"}}>{e.count}</text>
+            </g>
+          ))}
+        </g>
+      </svg>
+      {tip && <div className="viz-tooltip" style={{left:tip.x, top:tip.y}}>{tip.text}</div>}
+    </div>
+  );
+}
+
+function SourceBarChart({sources}) {
+  const [tip,setTip] = useState(null);
+  const top = [...(sources||[])].sort((a,b)=>(b.item_count||0)-(a.item_count||0)).slice(0,8);
+  const max = Math.max(1, ...top.map(s=>s.item_count||0));
+  const w=380,h=180, padL=110, padR=52, rowH=18, gap=10, y0=20;
+  const barW = w - padL - padR;
+
+  return (
+    <div style={{position:"relative"}}>
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`}>
+        <defs>
+          <linearGradient id="barGrad" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stopColor="#c7d2fe"/>
+            <stop offset="0.55" stopColor="#6366f1"/>
+            <stop offset="1" stopColor="#2563eb"/>
+          </linearGradient>
+        </defs>
+        {top.map((s,i)=>{
+          const v=s.item_count||0;
+          const bw = Math.max(2, (v/max)*barW);
+          const y = y0 + i*(rowH+gap);
+          return (
+            <g key={s.id}>
+              <text x="0" y={y+13} style={{fontSize:11,fill:"#475569",fontWeight:650}}>{(s.name||s.id||"").slice(0,10)}</text>
+              <rect
+                x={padL}
+                y={y}
+                width={bw}
+                height={rowH}
+                rx="8"
+                fill="url(#barGrad)"
+                opacity={0.95}
+                onMouseMove={e=>{
+                  const rect=e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                  setTip({x:e.clientX-rect.left,y:e.clientY-rect.top,text:`${s.name}：${v} 条`});
+                }}
+                onMouseLeave={()=>setTip(null)}
+              />
+              <text x={padL + bw + 8} y={y+13} style={{fontSize:11,fill:"#94a3b8",fontVariantNumeric:"tabular-nums"}}>{v}</text>
+            </g>
+          );
+        })}
+      </svg>
+      {tip && <div className="viz-tooltip" style={{left:tip.x, top:tip.y}}>{tip.text}</div>}
+    </div>
+  );
+}
+
+// ── 中国省份地理热力图 ────────────────────────────────────────
+function ChinaHeatMap({counts}) {
+  const [tip,setTip] = useState(null);
+
+  // 省级 + 直辖市中心坐标（viewBox 580×500，经纬度映射）
+  // x = (lon - 73) * 9.35,  y = (53 - lat) * 13.43
+  const PROVS = [
+    {n:"黑龙江",cx:504,cy:67,a:36},  {n:"吉林",cx:494,cy:121,a:24},
+    {n:"辽宁",cx:458,cy:161,a:24},   {n:"内蒙古",cx:411,cy:108,a:32},
+    {n:"新疆",cx:131,cy:148,a:40},   {n:"西藏",cx:140,cy:295,a:34},
+    {n:"青海",cx:215,cy:242,a:28},   {n:"甘肃",cx:289,cy:188,a:28},
+    {n:"宁夏",cx:308,cy:215,a:14},   {n:"陕西",cx:336,cy:242,a:24},
+    {n:"山西",cx:364,cy:215,a:22},   {n:"北京",cx:402,cy:175,a:13},
+    {n:"天津",cx:416,cy:188,a:11},   {n:"河北",cx:392,cy:195,a:24},
+    {n:"山东",cx:427,cy:228,a:24},   {n:"河南",cx:383,cy:255,a:24},
+    {n:"安徽",cx:415,cy:282,a:22},   {n:"江苏",cx:436,cy:268,a:22},
+    {n:"上海",cx:453,cy:295,a:11},   {n:"浙江",cx:441,cy:322,a:22},
+    {n:"四川",cx:280,cy:309,a:30},   {n:"重庆",cx:327,cy:309,a:16},
+    {n:"湖北",cx:364,cy:295,a:24},   {n:"湖南",cx:364,cy:335,a:24},
+    {n:"江西",cx:396,cy:335,a:22},   {n:"贵州",cx:317,cy:349,a:22},
+    {n:"福建",cx:425,cy:362,a:20},   {n:"云南",cx:271,cy:376,a:28},
+    {n:"广西",cx:333,cy:389,a:24},   {n:"广东",cx:383,cy:403,a:28},
+    {n:"海南",cx:355,cy:445,a:16},   {n:"河南",cx:383,cy:255,a:24},
+  ].filter((p,i,arr)=>arr.findIndex(q=>q.n===p.n)===i); // 去重
+
+  const pCounts = PROVS.map(p=>({...p,v:Number((counts||{})[p.n]||0)}));
+  const maxV = Math.max(1,...pCounts.map(p=>p.v));
+  const national = Number((counts||{})["全国"]||0);
+
+  function heatColor(v){
+    if(!v) return {fill:"#f1f5f9",stroke:"#e2e8f0",txt:"#94a3b8"};
+    const t = v/maxV;
+    // 白→橙→深红
+    const r=255, g=Math.round(255*(1-t*0.82)), b=Math.round(240*(1-t));
+    const alpha = 0.25+t*0.65;
+    return {
+      fill:`rgba(${r},${g},${b},${alpha})`,
+      stroke:`rgba(220,38,38,${0.2+t*0.6})`,
+      txt: t>0.55?"#fff":"#334155"
+    };
+  }
+
+  const VW=580, VH=500;
+  return (
+    <div style={{position:"relative"}}>
+      {/* 国家级单独展示 */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 10px",
+                   background:"#eff6ff",borderRadius:8,border:"1px solid #bfdbfe"}}>
+        <span style={{fontSize:16}}>🇨🇳</span>
+        <span style={{fontSize:12,fontWeight:700,color:"#1e40af",flex:1}}>国家级政策</span>
+        <span style={{fontSize:18,fontWeight:900,color:"#1e40af"}}>{national}</span>
+        <span style={{fontSize:11,color:"#60a5fa"}}>条</span>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} style={{overflow:"visible"}}>
+        {/* 大陆轮廓（粗略矩形背景） */}
+        <rect x="60" y="50" width="490" height="400" rx="4" fill="rgba(248,250,252,0.6)" stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4,3"/>
+        {/* 省份圆圈 */}
+        {pCounts.map(p=>{
+          const {fill,stroke,txt}=heatColor(p.v);
+          const r = p.a;
+          return (
+            <g key={p.n} style={{cursor:"pointer"}}
+              onMouseMove={e=>{
+                const sv=e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                setTip({x:e.clientX-sv.left,y:e.clientY-sv.top,name:p.n,v:p.v});
+              }}
+              onMouseLeave={()=>setTip(null)}
+            >
+              <circle cx={p.cx} cy={p.cy} r={r} fill={fill} stroke={stroke} strokeWidth={1.5}/>
+              {r>=13&&(
+                <text x={p.cx} y={p.cy+3} textAnchor="middle"
+                  style={{fontSize:r>20?10:9,fill:txt,fontWeight:800,pointerEvents:"none",userSelect:"none"}}>
+                  {p.n.length>2?p.n.slice(0,2):p.n}
+                </text>
+              )}
+              {p.v>0&&r>=20&&(
+                <text x={p.cx} y={p.cy+14} textAnchor="middle"
+                  style={{fontSize:8,fill:txt,opacity:.85,pointerEvents:"none",userSelect:"none"}}>
+                  {p.v}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* 图例 */}
+        <g transform={`translate(10,${VH-42})`}>
+          <text y="0" style={{fontSize:9,fill:"#94a3b8"}}>政策密度</text>
+          {[0,0.25,0.5,0.75,1].map((t,i)=>{
+            const r=255,g=Math.round(255*(1-t*0.82)),b=Math.round(240*(1-t)),a=0.25+t*0.65;
+            return <rect key={i} x={i*26} y="5" width="24" height="10" rx="2"
+              fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(220,38,38,${0.2+t*0.6})`} strokeWidth="1"/>;
+          })}
+          <text x="0" y="26" style={{fontSize:8,fill:"#94a3b8"}}>少</text>
+          <text x="110" y="26" style={{fontSize:8,fill:"#94a3b8"}}>多</text>
+        </g>
+      </svg>
+      {tip&&(
+        <div className="viz-tooltip" style={{left:tip.x+12,top:tip.y-8}}>
+          {tip.name}：{tip.v} 条
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusRing({counts}) {
+  const [tip,setTip] = useState(null);
+  const s0 = Number(counts?.["现行"]||0);
+  const s1 = Number(counts?.["征求意见"]||0);
+  const s2 = Number(counts?.["废止"]||0);
+  const total = s0+s1+s2 || 1;
+
+  const w=380,h=200,cx=w/2, cy=130;
+  const rings = [
+    {k:"现行", v:s0, r:68, c:"#22c55e"},
+    {k:"征求意见", v:s1, r:52, c:"#f59e0b"},
+    {k:"废止", v:s2, r:36, c:"#ef4444"},
+  ];
+
+  function semiPath(r){
+    const x0=cx-r, x1=cx+r;
+    return `M ${x0} ${cy} A ${r} ${r} 0 0 0 ${x1} ${cy}`;
+  }
+
+  return (
+    <div style={{position:"relative"}}>
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`}>
+        {rings.map(r=>{
+          const len = Math.PI*r.r;
+          const p = (r.v/total);
+          return (
+            <g key={r.k}>
+              <path d={semiPath(r.r)} fill="none" stroke="rgba(148,163,184,.25)" strokeWidth="10" strokeLinecap="round" />
+              <path
+                d={semiPath(r.r)}
+                fill="none"
+                stroke={r.c}
+                strokeWidth="10"
+                strokeLinecap="round"
+                strokeDasharray={`${len*p} ${len}`}
+                onMouseMove={e=>{
+                  const rect=e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                  const pct=r.v/total*100;
+                  setTip({x:e.clientX-rect.left,y:e.clientY-rect.top,text:`${r.k}：${r.v} 条（${_fmtPct(pct)}%）`});
+                }}
+                onMouseLeave={()=>setTip(null)}
+              />
+            </g>
+          );
+        })}
+        <text x={cx} y={cy-14} textAnchor="middle" style={{fontSize:24,fontWeight:900,fill:"#0f172a"}}>{total}</text>
+        <text x={cx} y={cy+6} textAnchor="middle" style={{fontSize:11,fontWeight:650,fill:"#94a3b8"}}>文件状态总数</text>
+        {/* Legend inside SVG to avoid overflow:hidden clipping */}
+        <g transform={`translate(${cx-100},${cy+22})`}>
+          {[{k:"现行",c:"#22c55e"},{k:"征求意见",c:"#f59e0b"},{k:"废止",c:"#ef4444"}].map((it,i)=>(
+            <g key={it.k} transform={`translate(${i*70},0)`}>
+              <circle cx="5" cy="5" r="5" fill={it.c}/>
+              <text x="14" y="9" style={{fontSize:11,fill:"#475569",fontWeight:600}}>{it.k}</text>
+            </g>
+          ))}
+        </g>
+      </svg>
+      {tip && <div className="viz-tooltip" style={{left:tip.x, top:tip.y}}>{tip.text}</div>}
+    </div>
+  );
+}
+
+function DashboardViz({meta365,sources}) {
+  if(!meta365) return null;
+  return (
+    <div className="viz-grid">
+      <div className="viz-card">
+        <div className="viz-head"><div><div className="viz-title">🍩 分类分布</div><div className="viz-sub">近365天 · 各分类占比</div></div></div>
+        <CategoryDonut counts={meta365.category_counts||{}} />
+      </div>
+      <div className="viz-card">
+        <div className="viz-head"><div><div className="viz-title">📡 数据来源</div><div className="viz-sub">Top 8 · 收录数量</div></div></div>
+        <SourceBarChart sources={sources||[]} />
+      </div>
+      <div className="viz-card viz-card-map">
+        <div className="viz-head"><div><div className="viz-title">🗺️ 省份热力分布</div><div className="viz-sub">近365天 · 颜色越红=政策越多 · 国家级单算</div></div></div>
+        <ChinaHeatMap counts={meta365.region_counts||{}} />
+      </div>
+      <div className="viz-card">
+        <div className="viz-head"><div><div className="viz-title">🧭 文件状态</div><div className="viz-sub">近365天 · 现行/征求意见/废止</div></div></div>
+        <StatusRing counts={meta365.status_counts||{}} />
+      </div>
+    </div>
+  );
+}
+
+// ── DashboardView ─────────────────────────────────────────
+function DashboardView({stats,onViewAll,onTagClick}) {
+  const [dash,setDash]       = useState(null);
+  const [trends,setTrends]   = useState(null);
+  const [meta365,setMeta365] = useState(null);
+  const [srcList,setSrcList] = useState([]);
+  const [loading,setLoading] = useState(true);
+
+  useEffect(()=>{
+    Promise.all([
+      fetch("/api/dashboard?latest_n=12",{credentials:"include"}).then(r=>r.json()),
+      fetch("/api/dashboard/trends",{credentials:"include"}).then(r=>r.json()).catch(()=>null),
+      fetch("/api/filters/meta?days=365",{credentials:"include"}).then(r=>r.json()).catch(()=>null),
+      fetch("/api/sources").then(r=>r.json()).catch(()=>[]),
+    ]).then(([d,t,m,s])=>{setDash(d);setTrends(t);setMeta365(m);setSrcList(s||[]);}).catch(console.error).finally(()=>setLoading(false));
+  },[]);
+
+  if(loading) return <div className="loading"><div className="spinner"/>加载中…</div>;
+  if(!dash) return <div className="empty"><div className="empty-icon">⚠️</div>Dashboard 加载失败</div>;
+
+  const {matrix,latest,updated_at} = dash;
+  const maxP = Math.max(1,...matrix.map(r=>r.policy));
+  const maxS = Math.max(1,...matrix.map(r=>r.subsidy));
+  const maxT = Math.max(1,...matrix.map(r=>r.tender));
+  const maxC = Math.max(1,...matrix.map(r=>r.compliance));
+  const totalItems  = stats?.total??"-";
+  const recent7d    = stats?.recent_7d??"-";
+  const srcCount    = (stats?.by_source||[]).length;
+  const regionCount = matrix.filter(r=>r.total>0).length;
+
+  function HeatCell({val,max}) {
+    if(!val) return <span className="heat-cell" style={{background:"#f1f5f9",color:"#cbd5e1"}}>0</span>;
+    const {bg,color}=heatColor(val,max);
+    return <span className="heat-cell" style={{background:bg,color}}>{val}</span>;
+  }
+  function bClass(b) { return {政策:"bucket-policy",补贴:"bucket-subsidy",招标:"bucket-tender",合规:"bucket-compliance"}[b]||"bucket-policy"; }
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div>
+        <div className="dash-section-title">📊 总览 <span className="updated">更新于 {updated_at}</span></div>
+        <div className="stat-cards">
+          {[
+            {k:"总条目",   v:totalItems, sub:"全部收录",    ico:"📦", accent:"var(--primary)"},
+            {k:"近7天新增", v:recent7d,  sub:"滚动更新",    ico:"🆕", accent:"var(--accent)"},
+            {k:"覆盖来源", v:srcCount,  sub:"个数据源",    ico:"📡", accent:"#0ea5e9"},
+            {k:"有数据地区", v:regionCount, sub:"个省/直辖市", ico:"🗺️", accent:"#22c55e"},
+          ].map(c=>(
+            <div key={c.k} className="stat-card" style={{"--stat-accent":c.accent}}>
+              <div className="stat-card-head">
+                <div className="stat-card-label">{c.k}</div>
+                <div className="stat-card-ico">{c.ico}</div>
+              </div>
+              <div className="stat-card-value">{c.v}</div>
+              <div className="stat-card-sub"><span className="mini-trend">↗</span>{c.sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 月度趋势柱状图（公开数据） */}
+      <TrendChart/>
+
+      {/* 新增 2x2 可视化区块（TrendChart 之后、IntelPanel 之前） */}
+      <DashboardViz meta365={meta365} sources={srcList}/>
+
+      {/* Top关键词 */}
+      {trends?.top_keywords?.length>0 && <TopKeywords keywords={trends.top_keywords} onTagClick={onTagClick}/>}
+
+      {/* 智能面板：解读覆盖率 / 机会雷达 / 风险预警 / 本周新增 */}
+      <IntelPanel/>
+
+      <div>
+        <div className="dash-section-title">🗺️ 省份政策矩阵</div>
+        <div className="matrix-wrap">
+          {matrix.length===0?(
+            <div className="empty" style={{padding:"30px 0"}}><div className="empty-icon">📭</div><div>暂无数据，请先运行抓取脚本或导入演示数据</div></div>
+          ):(
+            <table className="matrix-table">
+              <thead><tr><th>地区</th><th className="num" style={{color:"#1e40af"}}>政策</th><th className="num" style={{color:"#065f46"}}>补贴</th><th className="num" style={{color:"#92400e"}}>招标</th><th className="num" style={{color:"#991b1b"}}>合规</th><th className="num">合计</th></tr></thead>
+              <tbody>{matrix.filter(r=>r.total>0).map(r=>(
+                <tr key={r.region}>
+                  <td className="region-name">{r.region}</td>
+                  <td className="num"><HeatCell val={r.policy} max={maxP}/></td>
+                  <td className="num"><HeatCell val={r.subsidy} max={maxS}/></td>
+                  <td className="num"><HeatCell val={r.tender} max={maxT}/></td>
+                  <td className="num"><HeatCell val={r.compliance} max={maxC}/></td>
+                  <td className="num"><span className="total-badge">{r.total}</span></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="latest-wrap">
+          <div className="latest-header"><span className="latest-header-title">🕐 最新动态</span><button className="btn-view-all" onClick={onViewAll}>查看全部 →</button></div>
+          {latest.length===0?<div className="empty" style={{padding:"24px 0"}}><div>暂无数据</div></div>:latest.map(item=>{const nd=!item.date;return(
+            <div key={item.id} className="latest-item" onClick={()=>window.open(item.url,"_blank")}>
+              <span className={`latest-bucket ${bClass(item.bucket)}`}>{item.bucket}</span>
+              <div className="latest-body">
+                <div className="latest-title" title={item.title}>{item.title}</div>
+                <div className="latest-meta">
+                  {nd
+                    ? <span className="latest-date" style={{color:"#94a3b8"}}>📅 - <span className="badge-no-date">无日期</span></span>
+                    : <span className="latest-date">📅 {fmtDate(item.date)}</span>
+                  }
+                  {item.source_name&&<span className="latest-source">· {item.source_name}</span>}
+                  {item.region&&item.region!=="全国"&&<span className="latest-region">{item.region}</span>}
+                </div>
+              </div>
+            </div>
+          );})}
+        </div>
+      </div>
+      <div style={{fontSize:11,color:"#94a3b8"}}>热力色阶：颜色越深=该桶数量越多。点击条目跳转原文；「查看全部」切换到列表页。</div>
+    </div>
+  );
+}
+
+// ── Chips ────────────────────────────────────────────────
+function Chip({label,active,disabled,onClick}) {
+  return (
+    <button
+      className={`chip ${active?"active":""}`}
+      disabled={!!disabled}
+      onClick={disabled?undefined:onClick}
+      title={disabled?"暂无该选项数据":undefined}
+    >
+      {label}
+    </button>
+  );
+}
+function CatChip({label,count,active,disabled,onClick}) {
+  const idx=CATEGORY_TYPES.indexOf(label);
+  const color=CAT_COLORS[idx]||"#64748b"; const bg=CAT_BG[idx]||"#f1f5f9";
+  let style;
+  if(disabled) style={background:"#fff",borderColor:"#e2e8f0",color:"#94a3b8",opacity:.55,cursor:"not-allowed"};
+  else if(active) style={background:color,borderColor:color,color:"#fff"};
+  else style={background:bg,borderColor:color+"44",color};
+  return <button className="cat-chip" style={style} onClick={disabled?undefined:onClick} title={disabled?"暂无该类别数据":undefined}>{label}{Number.isFinite(count)?` (${count})`:""}</button>;
+}
+
+// ── ItemCard ──────────────────────────────────────────────
+function ItemCard({item,onOpen}) {
+  const hlTags  = new Set(["储能","PCS","BMS","EMS","补贴","招标","消防","强标"]);
+  const cats    = item.categories||[];
+  const tags    = (item.tags||[]).slice(0,6);
+  const impacts = item.impact_on||[];
+  const verCnt  = item.version_count||0;
+  const noDate  = !item.date;
+  const open = ()=>{ if(onOpen) return onOpen(item); window.open(item.url,"_blank"); };
+  return (
+    <div className="item-card" onClick={open}>
+      <div className="card-top">
+        <div className="card-title">
+          <a href={item.url} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()}>{item.title}</a>
+        </div>
+        <div className="card-meta-right">
+          <span className="card-date" style={noDate?{color:"#94a3b8"}:{}}>{noDate?"-":fmtDate(item.date)}</span>
+          {noDate&&<span className="badge-no-date">无日期</span>}
+          {item.doc_no&&<span className="card-docno">{item.doc_no}</span>}
+        </div>
+      </div>
+      {item.summary&&<div className="card-summary">{item.summary}</div>}
+      <div className="card-footer">
+        <span className="badge badge-source">{item.source_name}</span>
+        {item.region&&item.region!=="全国"&&<span className="badge badge-region">{item.region}</span>}
+        {item.level&&<span className="badge badge-level">{item.level}级</span>}
+        {item.status&&item.status!=="现行"&&<span className={`badge badge-status-${item.status}`}>{item.status}</span>}
+        {verCnt>1&&<span className="badge-version" title={`已追踪到 ${verCnt} 个版本`}>🔄 ×{verCnt}</span>}
+        {cats.slice(0,2).map(c=>{const i=CATEGORY_TYPES.indexOf(c);const color=CAT_COLORS[i]||"#64748b";const bg=CAT_BG[i]||"#f1f5f9";return <span key={c} className="badge" style={{background:bg,color,border:`1px solid ${color}33`}}>{c}</span>;})}
+        {impacts.length>0&&<span className="impact-row">{impacts.map(d=>{const s=IMPACT_STYLE[d]||{bg:"#f1f5f9",c:"#475569"};return <span key={d} className="impact-dot" style={{background:s.bg,color:s.c}}>{d}</span>;})}</span>}
+        {tags.map(t=><span key={t} className={`tag-chip ${hlTags.has(t)?"hl":""}`}>#{t}</span>)}
+      </div>
+    </div>
+  );
+}
+
+// ── AnalysisCard ────────────────────────────────────────────
+function AnalysisCard({data, onRegen, loading, onExportChecklist}) {
+  const a = data.analysis || {};
+  const stanceMap = {
+    positive: {label:"🟢 利好", cls:"stance-positive"},
+    negative: {label:"🔴 利空", cls:"stance-negative"},
+    neutral:  {label:"⚪ 中性",  cls:"stance-neutral"},
+    mixed:    {label:"🟡 混合", cls:"stance-mixed"},
+  };
+  const stance = stanceMap[a.stance] || stanceMap.neutral;
+  const confPct = Math.round((a.confidence||0)*100);
+
+  function exportMd() {
+    const md = data.analysis_md || "";
+    if(!md) return;
+    const blob = new Blob([md], {type:"text/markdown;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a2 = document.createElement("a");
+    a2.href = url; a2.download = `policy_analysis_${data.item_id||"item"}.md`;
+    a2.click(); URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="analysis-card">
+      <div className="analysis-card-header">
+        <div className="analysis-card-title">
+          🤖 AI 政策解读
+          {data.cached && <span style={{fontSize:10,opacity:.8,fontWeight:400}}>(已缓存)</span>}
+        </div>
+        <div className="analysis-card-meta">
+          {data.model} · {data.created_at ? data.created_at.slice(0,16) : ""}
+        </div>
+      </div>
+      <div className="analysis-card-body">
+        {data.error && <div style={{fontSize:11,color:"#d97706",marginBottom:8}}>⚠️ {data.error}</div>}
+
+        {a.one_liner && <div className="analysis-one-liner">「{a.one_liner}」</div>}
+
+        <div className={`stance-badge ${stance.cls}`}>{stance.label}</div>
+
+        {/* 置信度 */}
+        <div className="confidence-bar-wrap">
+          <div className="confidence-bar-bg">
+            <div className="confidence-bar-fill" style={{width:`${confPct}%`}}/>
+          </div>
+          <div className="confidence-label">置信度 {confPct}%</div>
+        </div>
+
+        {/* 受影响群体 */}
+        {(a.affected_segments||[]).length>0 && (
+          <div className="analysis-section">
+            <div className="analysis-section-title">👥 影响对象</div>
+            <div className="segment-chips">
+              {a.affected_segments.map((s,i)=><span key={i} className="segment-chip">{s}</span>)}
+            </div>
+          </div>
+        )}
+
+        {/* 关键条款 */}
+        {(a.key_points||[]).length>0 && (
+          <div className="analysis-section">
+            <div className="analysis-section-title">📌 关键条款要点</div>
+            <ul className="analysis-list">
+              {a.key_points.map((kp,i)=>(
+                <li key={i} className="kp-item">
+                  <strong>{kp.point}</strong>
+                  <div className="kp-why">{kp.why_it_matters}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 机会 & 风险 并排 */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+          {(a.opportunities||[]).length>0 && (
+            <div className="analysis-section" style={{marginBottom:0}}>
+              <div className="analysis-section-title">✅ 机会</div>
+              <ul className="analysis-list">
+                {a.opportunities.map((o,i)=><li key={i} className="opp-item">{o}</li>)}
+              </ul>
+            </div>
+          )}
+          {(a.risks||[]).length>0 && (
+            <div className="analysis-section" style={{marginBottom:0}}>
+              <div className="analysis-section-title">⚠️ 风险</div>
+              <ul className="analysis-list">
+                {a.risks.map((r,i)=><li key={i} className="risk-item">{r}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* 行动建议 */}
+        {(a.actions||[]).length>0 && (
+          <div className="analysis-section">
+            <div className="analysis-section-title">🎯 行动建议（按角色）</div>
+            <ul className="analysis-list">
+              {a.actions.map((ac,i)=>(
+                <li key={i} className="action-item">
+                  <span className="action-role">{ac.role}</span>
+                  {ac.action}
+                  {ac.deadline && <span className="action-deadline">⏰ {ac.deadline}</span>}
+                  {ac.effort   && <span className="action-effort">[{ac.effort}]</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 证据引用 */}
+        {(a.evidence||[]).length>0 && (
+          <div className="analysis-section">
+            <div className="analysis-section-title">📎 原文引用</div>
+            <ul className="analysis-list">
+              {a.evidence.map((ev,i)=>(
+                <li key={i} className="evidence-item">
+                  「{ev.quote}」
+                  <div className="ev-reason">→ {ev.reason}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 操作行 */}
+        <div className="analysis-actions-row">
+          <button className="btn-regen" onClick={()=>onRegen("auto")} disabled={loading}>
+            {loading?"⏳ 生成中…":"🔄 重新生成"}
+          </button>
+          <button className="btn-gen-pro" onClick={()=>onRegen("pro")} disabled={loading} title="使用更强模型重新生成">
+            💎 Pro 重生成
+          </button>
+          {data.analysis_md && (
+            <button className="btn-export-md" onClick={exportMd}>⬇ 导出 Markdown</button>
+          )}
+          {(a.actions||[]).length > 0 && onExportChecklist && (
+            <>
+              <button className="btn-checklist" onClick={()=>onExportChecklist("md")} title="导出 Markdown 合规清单">
+                📋 清单 .md
+              </button>
+              <button className="btn-checklist" onClick={()=>onExportChecklist("csv")} title="导出 CSV 合规清单（Excel可直接打开）">
+                📊 清单 .csv
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ItemModal ──────────────────────────────────────────────
+function ItemModal({item,onClose,isLoggedIn,onAddToCompare,isInCompare}) {
+  const [versions,setVersions]         = useState(null);
+  const [loadVer,setLoadVer]           = useState(false);
+
+  // Diff
+  const [showDiff,setShowDiff]         = useState(false);
+  const [diffData,setDiffData]         = useState(null);   // null=未加载
+  const [loadDiff,setLoadDiff]         = useState(false);
+
+  // ── 解读状态 ──
+  const [analysis,setAnalysis]         = useState(null);   // 已有解读数据
+  const [analysisLoading,setALoading]  = useState(false);
+  const [analysisError,setAError]      = useState(null);
+  const [noKeyMsg,setNoKeyMsg]         = useState(null);
+
+  useEffect(()=>{
+    if(!item) return;
+    setVersions(null);
+    setAnalysis(null); setAError(null); setNoKeyMsg(null);
+    setShowDiff(false); setDiffData(null);
+
+    if(isLoggedIn && (item.version_count||0) > 0) {
+      setLoadVer(true);
+      fetch(`/api/items/${item.id}/versions`,{credentials:"include"})
+        .then(r=>r.json()).then(d=>setVersions(d.versions||[])).catch(()=>{})
+        .finally(()=>setLoadVer(false));
+    }
+
+    // 自动加载缓存（GET，不触发 LLM）
+    if(isLoggedIn) {
+      fetch(`/api/items/${item.id}/analysis`,{credentials:"include"})
+        .then(r=>r.json())
+        .then(d=>{ if(d.has) setAnalysis(d); })
+        .catch(()=>{});
+    }
+  },[item,isLoggedIn]);
+
+  function toggleDiff() {
+    if(!showDiff && diffData===null) {
+      setLoadDiff(true);
+      fetch(`/api/items/${item.id}/diff`,{credentials:"include"})
+        .then(r=>r.json())
+        .then(d=>setDiffData(d))
+        .catch(e=>setDiffData({has:false,reason:"加载失败: "+e.message}))
+        .finally(()=>setLoadDiff(false));
+    }
+    setShowDiff(v=>!v);
+  }
+
+  function exportChecklist(format) {
+    window.open(`/api/items/${item.id}/checklist?format=${format}`, "_blank");
+  }
+
+  // ── 用户画像 state ──
+  const [bookmarked, setBookmarked] = useState(false);
+  useEffect(()=>{
+    if(!isLoggedIn||!item) return;
+    fetch(`/api/bookmarks/${item.id}/status`,{credentials:"include"})
+      .then(r=>r.json()).then(d=>setBookmarked(d.bookmarked||false)).catch(()=>{});
+  },[item?.id]);
+  function toggleBookmark() {
+    const method = bookmarked ? "DELETE" : "POST";
+    fetch(`/api/bookmarks/${item.id}`,{method,credentials:"include"})
+      .then(r=>r.json()).then(d=>setBookmarked(d.bookmarked));
+  }
+
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [pendingMode, setPendingMode]           = useState(null);
+  const [pendingForce, setPendingForce]         = useState(false);
+  const [pRole, setPRole]     = useState("");
+  const [pFocus, setPFocus]   = useState([]);  // 多选
+  const [pSize, setPSize]     = useState("");
+
+  function openProfileModal(mode, force=false) {
+    setPendingMode(mode); setPendingForce(force);
+    setShowProfileModal(true);
+  }
+  function handleProfileStart(skip=false) {
+    setShowProfileModal(false);
+    const ctx = skip ? "" : buildUserContext();
+    triggerAnalysis(pendingMode, pendingForce, ctx);
+  }
+  function buildUserContext() {
+    const parts = [];
+    if(pRole)       parts.push(`角色：${pRole}`);
+    if(pFocus.length) parts.push(`关注重点：${pFocus.join("、")}`);
+    if(pSize)       parts.push(`公司规模：${pSize}`);
+    return parts.length ? `用户背景--${parts.join("，")}。请根据此背景，重点解读对该用户最相关的内容，并突出实操建议。` : "";
+  }
+  function toggleFocus(v){
+    setPFocus(prev => prev.includes(v) ? prev.filter(x=>x!==v) : prev.length<2 ? [...prev,v] : prev);
+  }
+
+  async function triggerAnalysis(mode, force=false, userCtx="") {
+    setALoading(true); setAError(null); setNoKeyMsg(null);
+    try {
+      const url = `/api/items/${item.id}/analysis?mode=${mode}&force=${force}`;
+      const resp = await fetch(url, {
+        method:"POST", credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({user_context: userCtx||""}),
+      });
+      const data = await resp.json();
+      if(!resp.ok) {
+        const detail = data.detail || "请求失败";
+        if(resp.status===400 && detail.includes("OPENAI_API_KEY")) {
+          setNoKeyMsg(detail);
+        } else {
+          setAError(detail);
+        }
+        return;
+      }
+      setAnalysis(data);
+    } catch(e) {
+      setAError("网络错误：" + e.message);
+    } finally {
+      setALoading(false);
+    }
+  }
+
+  if(!item) return null;
+  const verCnt = item.version_count||0;
+  const noDate = !item.date;
+
+  const ROLES  = ["🏗️ 项目开发商","🔧 系统集成商","📊 咨询/投研机构","🏭 设备/电池制造商","🏛️ 政府/园区/监管"];
+  const FOCUS  = ["💰 补贴申报","⚡ 并网合规","📋 安全合规/消防","📈 电力市场交易","🔍 政策研究/调研"];
+  const SIZES  = ["小型（<50人）","中型（50-500人）","大型（>500人）"];
+  const canStart = !!pRole || pFocus.length>0 || !!pSize;
+
+  return (<>
+    {showProfileModal && (
+      <div className="profile-modal-overlay" onClick={()=>setShowProfileModal(false)}>
+        <div className="profile-modal-box" onClick={e=>e.stopPropagation()}>
+          <div style={{fontSize:15,fontWeight:800,color:"#0f172a",marginBottom:16}}>
+            🎯 为你定制解读 · 3个问题
+          </div>
+
+          <p className="profile-q-title">① 您的角色</p>
+          <div className="profile-chips">
+            {ROLES.map(r=>(
+              <span key={r} className={`profile-chip${pRole===r?" active":""}`} onClick={()=>setPRole(r===pRole?"":r)}>{r}</span>
+            ))}
+          </div>
+
+          <p className="profile-q-title">② 主要关注点 <span style={{fontWeight:400,color:"#94a3b8",fontSize:11}}>(至多2项)</span></p>
+          <div className="profile-chips">
+            {FOCUS.map(f=>(
+              <span key={f} className={`profile-chip${pFocus.includes(f)?" active":""}`} onClick={()=>toggleFocus(f)}>{f}</span>
+            ))}
+          </div>
+
+          <p className="profile-q-title">③ 公司规模</p>
+          <div className="profile-chips">
+            {SIZES.map(s=>(
+              <span key={s} className={`profile-chip${pSize===s?" active":""}`} onClick={()=>setPSize(s===pSize?"":s)}>{s}</span>
+            ))}
+          </div>
+
+          <div className="profile-modal-footer">
+            <button className="btn-profile-skip" onClick={()=>handleProfileStart(true)}>跳过，直接生成</button>
+            <button className="btn-profile-start" disabled={!canStart} onClick={()=>handleProfileStart(false)}>
+              ✨ 开始定制解读
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{width:760,maxWidth:"calc(100vw - 32px)",padding:"22px 24px",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start"}}>
+          <div style={{fontSize:16,fontWeight:800,color:"#0f172a",lineHeight:1.25}}>{item.title}</div>
+          <button className="btn-cancel" onClick={onClose} style={{padding:"6px 10px",flexShrink:0}}>关闭</button>
+        </div>
+
+        <div style={{marginTop:10,color:"#64748b",fontSize:12,display:"flex",flexWrap:"wrap",gap:10,alignItems:"center"}}>
+          <span>🕒 {noDate ? <span style={{color:"#94a3b8"}}>- <span className="badge-no-date" style={{fontSize:11,verticalAlign:"middle"}}>无日期</span></span> : fmtDate(item.date)}</span>
+          {item.source_name&&<span>🏛️ {item.source_name}</span>}
+          {item.region&&<span>📍 {item.region}</span>}
+          {item.doc_no&&<span>📄 {item.doc_no}</span>}
+          {item.status&&<span>状态：{item.status}</span>}
+          {item.level&&<span>层级：{item.level}</span>}
+        </div>
+
+        {item.summary&&<div style={{marginTop:14,background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:12,color:"#0f172a",fontSize:13,lineHeight:1.55}}>{item.summary}</div>}
+
+        {/* 版本时间线 */}
+        {verCnt > 0 && (
+          <div style={{marginTop:16}}>
+            <div style={{fontWeight:700,fontSize:12,color:"#475569",marginBottom:10}}>
+              🔄 版本时间线（共 {verCnt} 版本）
+            </div>
+            {loadVer ? (
+              <div style={{fontSize:12,color:"#94a3b8"}}>加载中…</div>
+            ) : versions && versions.length>0 ? (
+              <div className="version-timeline">
+                {versions.map((v,i)=>(
+                  <div key={v.id} className="version-item">
+                    <div className={`version-dot ${i===0?"first":i===versions.length-1?"last":""}`}/>
+                    <div className="version-info">
+                      <div className="version-label">
+                        {i===0?"📝 初始版本":i===versions.length-1?"🔔 最新版本":`更新 v${i+1}`}
+                      </div>
+                      <div className="version-time">{v.detected_at?v.detected_at.slice(0,19):"-"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* 条款变化 Diff（版本数>=2 才显示） */}
+        {isLoggedIn && verCnt >= 2 && (
+          <div className="diff-wrap">
+            <button className="diff-toggle" onClick={toggleDiff}>
+              <span>🔀</span>
+              <span>{showDiff ? "▲ 收起变化 Diff" : "▼ 查看条款变化 Diff"}</span>
+              <span style={{fontSize:10,color:"#94a3b8",marginLeft:"auto"}}>近两版对比</span>
+            </button>
+            {showDiff && (
+              <div style={{marginTop:10}}>
+                {loadDiff ? (
+                  <div style={{fontSize:12,color:"#94a3b8",padding:"10px 0"}}>加载中…</div>
+                ) : diffData && diffData.has ? (
+                  <div>
+                    <div style={{fontSize:11,color:"#64748b",marginBottom:6,display:"flex",gap:12}}>
+                      <span>🟡 旧版：{diffData.from_version?.detected_at?.slice(0,16)||"-"}</span>
+                      <span>🟢 新版：{diffData.to_version?.detected_at?.slice(0,16)||"-"}</span>
+                      <span style={{marginLeft:"auto"}}>{diffData.diff_lines||0} 行变化</span>
+                    </div>
+                    {diffData.diff ? (
+                      <div className="diff-body">
+                        {diffData.diff.split("\n").map((line,i)=>{
+                          let cls = "diff-line-normal";
+                          if(line.startsWith("+++") || line.startsWith("---")) cls = "diff-line-info";
+                          else if(line.startsWith("+")) cls = "diff-line-add";
+                          else if(line.startsWith("-")) cls = "diff-line-del";
+                          else if(line.startsWith("@@")) cls = "diff-line-hunk";
+                          return <div key={i} className={cls}>{line||" "}</div>;
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{fontSize:12,color:"#94a3b8"}}>无变化内容</div>
+                    )}
+                  </div>
+                ) : diffData ? (
+                  <div className="diff-no-snap">
+                    ℹ️ {diffData.reason || "暂无可比较的快照数据"}
+                    {diffData.reason?.includes("content_snapshot") && (
+                      <div style={{marginTop:6,fontSize:11,opacity:.8}}>
+                        新功能已启用：下次内容变更时将自动记录快照，届时可查看 Diff。
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        )}
+
+
+
+        {/* ── AI 政策解读 ── */}
+        {isLoggedIn && (
+          <div style={{marginTop:16}}>
+            {/* 未有解读时：显示触发按钮 */}
+            {!analysis && !analysisLoading && (
+              <div className="analysis-trigger-row">
+                <button className="btn-gen-mini" onClick={()=>openProfileModal("auto")}>
+                  🤖 生成解读 <span style={{fontSize:10,opacity:.8}}>(auto/省钱)</span>
+                </button>
+                <button className="btn-gen-pro" onClick={()=>openProfileModal("pro")}>
+                  💎 更准（Pro）
+                </button>
+                <span style={{fontSize:11,color:"#94a3b8"}}>首次免费生成；重复点不重复计费</span>
+              </div>
+            )}
+
+            {/* 加载中 */}
+            {analysisLoading && (
+              <div className="analysis-loading">
+                <div className="spinner" style={{width:18,height:18,marginBottom:0}}/>
+                正在调用 LLM 生成解读，请稍候（10-30秒）…
+              </div>
+            )}
+
+            {/* API Key 未配置提示 */}
+            {noKeyMsg && (
+              <div className="analysis-no-key">
+                🔑 <strong>需要配置 OpenAI API Key</strong><br/>
+                {noKeyMsg}<br/><br/>
+                设置方法：<br/>
+                <code>export OPENAI_API_KEY=sk-你的key</code><br/>
+                可选模型：<code>export POLICY_LLM_MINI_MODEL=gpt-4o-mini</code>（默认）<br/>
+                然后重启服务：<code>python server.py</code>
+              </div>
+            )}
+
+            {/* LLM 调用错误 */}
+            {analysisError && (
+              <div className="analysis-error">
+                ❌ {analysisError}
+                <button className="btn-regen" style={{marginLeft:12,fontSize:11}} onClick={()=>triggerAnalysis("auto",true)}>重试</button>
+              </div>
+            )}
+
+            {/* 解读卡 */}
+            {analysis && (
+              <AnalysisCard
+                data={analysis}
+                loading={analysisLoading}
+                onRegen={(mode)=>triggerAnalysis(mode,true)}
+                onExportChecklist={exportChecklist}
+              />
+            )}
+          </div>
+        )}
+
+        <div style={{marginTop:14,display:"flex",gap:8,flexWrap:"wrap"}}>
+          {isLoggedIn&&<button className={`btn-bookmark${bookmarked?" active":""}`} onClick={toggleBookmark} title={bookmarked?"取消收藏":"收藏此政策"}>
+            {bookmarked?"⭐ 已收藏":"☆ 收藏"}
+          </button>}
+          {isLoggedIn&&onAddToCompare&&<button className={`btn-compare-add${isInCompare?" selected":""}`} onClick={()=>onAddToCompare(item)} title="加入对比">
+            {isInCompare?"✓ 已加入对比":"⚖️ 加入对比"}
+          </button>}
+          <button className="btn-secondary" onClick={()=>window.open(item.url,"_blank")}>打开原文 ↗</button>
+          <button className="btn-secondary" onClick={()=>navigator.clipboard?.writeText(item.url||"")}>复制链接</button>
+        </div>
+
+      </div>
+    </div>
+  </>);
+}
+
+// ── ActiveFilters ─────────────────────────────────────────
+function ActiveFilters({filters,onRemove}) {
+  const pills=[];
+  if(filters.keyword)   pills.push({key:"keyword",   label:`"${filters.keyword}"`});
+  if(filters.region)    pills.push({key:"region",    label:`📍${filters.region}`});
+  if(filters.source_id) pills.push({key:"source_id", label:`来源:${filters.source_id}`});
+  if(filters.status)    pills.push({key:"status",    label:`状态:${filters.status}`});
+  if(filters.level)     pills.push({key:"level",     label:`层级:${filters.level}`});
+  (filters.categories||[]).forEach(c=>pills.push({key:"cat:"+c,label:c}));
+  (filters.tags||[]).forEach(t=>pills.push({key:"tag:"+t,label:`#${t}`}));
+  (filters.impact_on||[]).forEach(d=>pills.push({key:"impact:"+d,label:`影响:${d}`}));
+  if(!pills.length) return null;
+  const prominent = (filters.tags||[]).length>0;
+  return (
+    <div className={`active-filters ${prominent?"prominent":""}`}>
+      {prominent && <span className="af-label">当前已过滤：</span>}
+      {pills.map(p=>(
+        <span key={p.key} className="af-pill">{p.label}<button onClick={()=>onRemove(p.key)}>×</button></span>
+      ))}
+    </div>
+  );
+}
+
+// ── ListView ──────────────────────────────────────────────
+function ListView({catCounts,regions,regionCounts,sources,onAddToCompare,compareIds}) {
+  const [items,setItems]     = useState([]);
+  const [total,setTotal]     = useState(0);
+  const [loading,setLoading] = useState(false);
+  const [error,setError]     = useState(null);
+  const [days,setDays]           = useState(30);
+  const [categories,setCats]     = useState([]);
+  const [region,setRegion]       = useState("");
+  const [sourceId,setSrc]        = useState("");
+  const [tags,setTags]           = useState([]);
+  const [status,setStatus]       = useState("");
+  const [level,setLevel]         = useState("");
+  const [impactOn,setImpact]     = useState([]);
+  const [keyword,setKeyword]     = useState("");
+  const [inputKw,setInputKw]     = useState("");
+  const [relevantOnly,setRelOnly]= useState(false);
+  const [offset,setOffset]   = useState(0);
+  const [showTags,setShowTags]= useState(true);
+  const [lcRC,setLcRC]       = useState(regionCounts||{});
+  const [lcCC,setLcCC]       = useState(catCounts||{});
+  const [lcSC,setLcSC]       = useState({});  // status counts
+  const [lcLC,setLcLC]       = useState({});  // level counts
+  const [lcIC,setLcIC]       = useState({});  // impact counts
+  const [lcRegions,setLcRegions] = useState([]); // regions with data
+  const [selItem,setSelItem] = useState(null);
+  const LIMIT = 25;
+
+  useEffect(()=>{
+    fetch(`/api/filters/meta?days=${days}`).then(r=>r.json()).then(d=>{
+      setLcRC(d.region_counts||{});
+      setLcCC(d.category_counts||{});
+      setLcSC(d.status_counts||{});
+      setLcLC(d.level_counts||{});
+      setLcIC(d.impact_counts||{});
+      setLcRegions(d.regions||[]);
+    }).catch(()=>{});
+  },[days]);
+
+  const doFetch = useCallback(async(off)=>{
+    setLoading(true); setError(null);
+    try {
+      const p = new URLSearchParams();
+      p.set("days",days); p.set("limit",LIMIT); p.set("offset",off);
+      categories.forEach(c=>p.append("categories",c));
+      if(region) p.set("region",region);
+      if(sourceId) p.set("source_id",sourceId);
+      tags.forEach(t=>p.append("tags",t));
+      if(status) p.set("status",status);
+      if(level)  p.set("level",level);
+      impactOn.forEach(d=>p.append("impact_on",d));
+      if(keyword) p.set("keyword",keyword);
+      if(relevantOnly) p.set("relevant_only","true");
+      const res = await fetch(`/api/items?${p}`,{credentials:"include"});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      setItems(d.items||[]); setTotal(d.total||0);
+    } catch(e) { setError(e.message); } finally { setLoading(false); }
+  },[days,categories,region,sourceId,tags,status,level,impactOn,keyword]);
+
+  // 统一由 offset 驱动拉取，避免"筛选变更 setOffset + doFetch(0)"造成的双重请求
+  useEffect(()=>{ setOffset(0); },[days,categories,region,sourceId,tags,status,level,impactOn,keyword,relevantOnly]);
+  useEffect(()=>{ doFetch(offset); },[offset, doFetch]);
+
+  function resetAll(){ setDays(30);setCats([]);setRegion("");setSrc("");setTags([]);setStatus("");setLevel("");setImpact([]);setKeyword("");setInputKw("");setRelOnly(false);setOffset(0); }
+  function removeFilter(key){
+    if(key==="keyword"){setKeyword("");setInputKw("");}
+    else if(key==="region") setRegion("");
+    else if(key==="source_id") setSrc("");
+    else if(key==="status") setStatus("");
+    else if(key==="level") setLevel("");
+    else if(key.startsWith("cat:")) setCats(p=>p.filter(x=>x!==key.slice(4)));
+    else if(key.startsWith("tag:")) setTags(p=>p.filter(x=>x!==key.slice(4)));
+    else if(key.startsWith("impact:")) setImpact(p=>p.filter(x=>x!==key.slice(7)));
+  }
+
+  const filters = {keyword,region,source_id:sourceId,status,level,categories,tags,impact_on:impactOn};
+  const totalPages = Math.ceil(total/LIMIT);
+  const currentPage= Math.floor(offset/LIMIT)+1;
+  const activeCount= categories.length+tags.length+impactOn.length+(region?1:0)+(sourceId?1:0)+(status?1:0)+(level?1:0)+(keyword?1:0);
+
+  return (
+    <div className="main-layout" style={{padding:0,gap:16}}>
+      <div className="sidebar" style={{top:0}}>
+        {/* 相关性过滤 */}
+        <div className="filter-card" style={{background: relevantOnly ? "linear-gradient(135deg,#ecfdf5,#d1fae5)" : undefined, borderColor: relevantOnly ? "#22c55e" : undefined}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div>
+              <div className="filter-title" style={{marginBottom:2}}>⚡ 仅看相关政策</div>
+              <div style={{fontSize:11,color:"#64748b"}}>只显示与储能直接相关的 ~711 条</div>
+            </div>
+            <div
+              onClick={()=>setRelOnly(v=>!v)}
+              style={{width:42,height:24,borderRadius:12,background:relevantOnly?"#22c55e":"#cbd5e1",cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}
+            >
+              <div style={{position:"absolute",top:3,left:relevantOnly?20:3,width:18,height:18,borderRadius:9,background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
+            </div>
+          </div>
+        </div>
+        <div className="filter-card"><div className="filter-title">🕐 时间范围</div><div className="chip-group">{TIME_OPTIONS.map(o=><Chip key={o.days} label={o.label} active={days===o.days} onClick={()=>setDays(o.days)}/>)}</div></div>
+        <div className="filter-card"><div className="filter-title">📂 分类类型</div><div className="chip-group">{CATEGORY_TYPES.map(c=>{const cnt=lcCC?.[c]??null;return <CatChip key={c} label={c} count={cnt} maxCount={Math.max(...Object.values(lcCC||{}),1)} disabled={cnt===0} active={categories.includes(c)} onClick={()=>setCats(toggle(categories,c))}/>;})}</div></div>
+        <div className="filter-card"><div className="filter-title">🏷️ 主题标签</div><div className="chip-group">{TAGS_PRESET.map(t=><Chip key={t} label={t} active={tags.includes(t)} onClick={()=>setTags(toggle(tags,t))}/>)}</div></div>
+        <div className="filter-card">
+          <div className="filter-title">🗺️ 地区 / 来源</div>
+          <div className="filter-section"><span className="filter-label">地区</span><select value={region} onChange={e=>setRegion(e.target.value)}><option value="">全部地区</option>{(lcRegions.length?lcRegions:regions||[]).filter(r=>r).map(r=>{const cnt=lcRC?.[r]??0;return <option key={r} value={r}>{r}{cnt?` (${cnt})`:""}</option>;})}</select></div>
+          <div className="filter-section"><span className="filter-label">来源</span><select value={sourceId} onChange={e=>setSrc(e.target.value)}><option value="">全部来源</option>{(sources||[]).map(s=><option key={s.id} value={s.id}>{s.name}{s.item_count?` (${s.item_count})`:""}</option>)}</select></div>
+        </div>
+        <div className="filter-card">
+          <div className="filter-title">📋 状态 / 层级</div>
+          <div className="filter-section"><span className="filter-label">文件状态</span><div className="chip-group">{STATUS_OPTIONS.map(s=>{const cnt=lcSC?.[s]??0;return <Chip key={s} label={`${s}${cnt?` (${cnt})`:""}`} active={status===s} disabled={cnt===0} onClick={()=>setStatus(status===s?"":s)}/>;})}</div></div>
+          <div className="filter-section"><span className="filter-label">政策层级</span><div className="chip-group">{LEVEL_OPTIONS.map(l=>{const cnt=lcLC?.[l]??0;return <Chip key={l} label={`${l}${cnt?` (${cnt})`:""}`} active={level===l} disabled={cnt===0} onClick={()=>setLevel(level===l?"":l)}/>;})}</div></div>
+        </div>
+        <div className="filter-card"><div className="filter-title">🎯 影响域</div><div className="chip-group">{IMPACT_OPTIONS.map(d=>{const s=IMPACT_STYLE[d]||{};const on=impactOn.includes(d);const cnt=lcIC?.[d]??0;return <button key={d} className="chip" disabled={cnt===0&&!on} style={on?{background:s.c,borderColor:s.c,color:"#fff",opacity:1}:{background:s.bg,borderColor:s.c+"66",color:s.c,opacity:cnt>0?1:0.4}} onClick={()=>cnt>0||on?setImpact(toggle(impactOn,d)):null}>{d}{cnt?<span style={{marginLeft:4,fontSize:10,opacity:.7}}>{cnt}</span>:null}</button>;})}</div></div>
+        <button className="btn-reset" onClick={resetAll}>↺ 重置全部筛选{activeCount>0?` (${activeCount})`:""}</button>
+      </div>
+      <div className="content">
+        <div className="search-row">
+          <input type="text" placeholder="关键词搜索（标题/摘要/文号）…" value={inputKw} onChange={e=>setInputKw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&setKeyword(inputKw)}/>
+          <button className="btn-search" onClick={()=>setKeyword(inputKw)}>搜索</button>
+        </div>
+        <ActiveFilters filters={filters} onRemove={removeFilter}/>
+        <div className="result-bar"><span>共 <strong>{total}</strong> 条结果</span><span className="pg-info">第 {currentPage} / {Math.max(1,totalPages)} 页</span></div>
+        {loading?<div className="loading"><div className="spinner"/>加载中…</div>
+          :error?<div className="empty"><div className="empty-icon">⚠️</div><div>加载失败: {error}</div></div>
+          :items.length===0?<div className="empty"><div className="empty-icon">📭</div><div>暂无匹配数据</div></div>
+          :<>
+            <div className="item-list">{items.map(item=><ItemCard key={item.id} item={item} onOpen={setSelItem}/>)}</div>
+            {totalPages>1&&<div className="pagination"><button className="pg-btn" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-LIMIT))}>← 上一页</button><span className="pg-info">{currentPage} / {totalPages}</span><button className="pg-btn" disabled={offset+LIMIT>=total} onClick={()=>setOffset(offset+LIMIT)}>下一页 →</button></div>}
+            <ItemModal item={selItem} onClose={()=>setSelItem(null)} isLoggedIn={true} onAddToCompare={onAddToCompare} isInCompare={!!(compareIds&&selItem&&compareIds.includes(selItem.id))}/>
+          </>}
+      </div>
+    </div>
+  );
+}
+
+// ── SourceStatusView ──────────────────────────────────────
+function SourceStatusView() {
+  const [data,setData]       = useState(null);
+  const [loading,setLoading] = useState(true);
+  useEffect(()=>{
+    fetch("/api/scrape-status",{credentials:"include"}).then(r=>r.json()).then(setData).catch(console.error).finally(()=>setLoading(false));
+  },[]);
+  if(loading) return <div className="loading"><div className="spinner"/>加载中…</div>;
+  if(!data) return <div className="empty"><div className="empty-icon">⚠️</div>加载失败</div>;
+  const {sources,recent_log} = data;
+  const totalSrcs    = sources.length;
+  const errorSrcs    = sources.filter(s=>s.error).length;
+  const runSrcs      = sources.filter(s=>s.last_run_at).length;
+  const totalItems   = sources.reduce((s,r)=>s+(r.item_count||0),0);
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div className="dash-section-title">📡 数据源状态</div>
+      <div className="stat-cards">
+        {[
+          {k:"配置来源",  v:totalSrcs,  sub:"个数据源",         ico:"📦", accent:"#0ea5e9"},
+          {k:"已抓取来源", v:runSrcs,    sub:"至少运行过一次",   ico:"✅", accent:"#22c55e"},
+          {k:"收录条目",  v:totalItems, sub:"合计",            ico:"📄", accent:"var(--primary)"},
+          {k:"有错来源",  v:errorSrcs,  sub:errorSrcs>0?"需要检查":"全部正常", ico:"⚠️", accent:errorSrcs>0?"#ef4444":"#22c55e"},
+        ].map(c=>(
+          <div key={c.k} className="stat-card" style={{"--stat-accent":c.accent}}>
+            <div className="stat-card-head">
+              <div className="stat-card-label">{c.k}</div>
+              <div className="stat-card-ico">{c.ico}</div>
+            </div>
+            <div className="stat-card-value" style={c.k==="有错来源"&&errorSrcs>0?{color:"#ef4444"}:{}}>{c.v}</div>
+            <div className="stat-card-sub">{c.sub}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:"#fff",border:"1px solid var(--border)",borderRadius:"var(--radius)",boxShadow:"var(--shadow)",overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>📋 各来源状态详情</span>
+
+        </div>
+        <table className="source-table">
+          <thead><tr><th>来源</th><th>地区</th><th>类型</th><th>最近抓取</th><th style={{textAlign:"right"}}>发现</th><th style={{textAlign:"right"}}>新增</th><th style={{textAlign:"right"}}>收录总数</th><th>状态</th></tr></thead>
+          <tbody>{sources.map(s=>(
+            <tr key={s.source_id}>
+              <td><div style={{fontWeight:600,color:"#0f172a"}}>{s.name}</div><div style={{fontSize:10,color:"#94a3b8"}}>{s.source_id}</div></td>
+              <td><span style={{fontSize:12,color:"#16a34a"}}>{s.region||"全国"}</span></td>
+              <td><span style={{fontSize:11,background:"#f1f5f9",color:"#475569",padding:"1px 6px",borderRadius:4}}>{s.type}</span></td>
+              <td style={{fontSize:12,color:"#64748b"}}>{s.last_run_at?fmtTs(s.last_run_at):"从未运行"}</td>
+              <td style={{textAlign:"right",fontSize:12}}>{s.items_found||0}</td>
+              <td style={{textAlign:"right",fontSize:12,color:"#16a34a",fontWeight:600}}>{s.items_new||0}</td>
+              <td style={{textAlign:"right",fontSize:12,fontWeight:700}}>{s.item_count||0}</td>
+              <td>{s.error?<span><span className="status-dot error"/>⚠️ <span style={{fontSize:11,color:"#dc2626"}} title={s.error}>错误</span></span>:s.last_run_at?<span><span className="status-dot ok"/>正常</span>:<span><span className="status-dot never"/>待运行</span>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      {recent_log&&recent_log.length>0&&(
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:"#0f172a",marginBottom:8}}>📜 最近抓取日志</div>
+          <div className="log-card">{recent_log.map((l,i)=>(
+            <div key={i} className="log-row">
+              <span className="log-ts">{l.run_at?l.run_at.slice(0,16):"-"}</span>
+              <span className="log-src">{l.source_id}</span>
+              <span className="log-num">+{l.items_new||0}</span>
+              {l.error&&<span className="log-err" title={l.error}>⚠️ 错误</span>}
+            </div>
+          ))}</div>
+        </div>
+      )}
+      <div style={{background:"#f8fafc",border:"1px solid var(--border)",borderRadius:8,padding:"12px 16px",fontSize:12,color:"#64748b"}}>
+        <div style={{fontWeight:600,marginBottom:6}}>💡 运行说明</div>
+        <div>• 数据更新：运行 policy_intel.py 重新采集各源</div>
+      </div>
+    </div>
+  );
+}
+
+// ── BookmarksView ─────────────────────────────────────────
+function BookmarksView() {
+  const [items, setItems]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null); // item modal
+
+  useEffect(()=>{
+    fetch("/api/bookmarks", {credentials:"include"})
+      .then(r=>r.json()).then(d=>{setItems(Array.isArray(d)?d:[]);setLoading(false);})
+      .catch(()=>setLoading(false));
+  },[]);
+
+  function removeItem(item_id) {
+    fetch(`/api/bookmarks/${item_id}`, {method:"DELETE",credentials:"include"}).then(()=>{
+      setItems(prev=>prev.filter(x=>x.item_id!==item_id));
+    });
+  }
+
+  if(loading) return <div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>加载中…</div>;
+
+  return (
+    <div style={{padding:"20px 24px",maxWidth:900,margin:"0 auto"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+        <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#0f172a"}}>⭐ 我的收藏夹</h2>
+        <span style={{fontSize:12,color:"#94a3b8"}}>{items.length} 条收藏</span>
+      </div>
+      {items.length===0 ? (
+        <div className="bookmark-empty">
+          <div style={{fontSize:36,marginBottom:12}}>⭐</div>
+          <div>还没有收藏任何政策</div>
+          <div style={{fontSize:12,marginTop:6}}>在政策列表中点击 ⭐ 即可收藏</div>
+        </div>
+      ) : items.map(item=>(
+        <div key={item.item_id} className="bookmark-card">
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start"}}>
+            <div style={{flex:1,cursor:"pointer"}} onClick={()=>setSelected(item)}>
+              <div style={{fontWeight:700,color:"#0f172a",fontSize:14,lineHeight:1.4,marginBottom:6}}>{item.title}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:12,color:"#64748b"}}>
+                {item.date&&<span>🕒 {item.date}</span>}
+                {item.region&&<span>📍 {item.region}</span>}
+                {item.source_name&&<span style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏛️ {item.source_name}</span>}
+                {item.status&&<span className={`badge-status ${item.status}`}>{item.status}</span>}
+              </div>
+            </div>
+            <button onClick={()=>removeItem(item.item_id)} title="取消收藏"
+              style={{padding:"4px 10px",border:"1.5px solid #fee2e2",background:"#fff",color:"#ef4444",borderRadius:6,fontSize:12,cursor:"pointer",flexShrink:0}}>
+              ✕ 取消
+            </button>
+          </div>
+          {item.url&&(
+            <div style={{marginTop:8}}>
+              <a href={item.url} target="_blank" rel="noreferrer"
+                style={{fontSize:12,color:"#6366f1",textDecoration:"none"}}>打开原文 ↗</a>
+            </div>
+          )}
+        </div>
+      ))}
+      {selected&&<ItemModal item={{...selected,id:selected.item_id}} onClose={()=>setSelected(null)} isLoggedIn={true}/>}
+    </div>
+  );
+}
+
+// ── CompareBar（全局对比托盘）─────────────────────────────
+function CompareBar({items, onRemove, onClear}) {
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState(null);
+  const [error, setError]       = useState(null);
+  const [showModal, setShowModal] = useState(false);
+
+  // CompareBar 出现时给 body 加类，防止遮住底部内容（items 变化也保持一致）
+  useEffect(()=>{
+    if(items && items.length>0) document.body.classList.add('has-compare-bar');
+    return ()=>{ document.body.classList.remove('has-compare-bar'); };
+  },[items.length]);
+
+  async function doCompare() {
+    if(items.length < 2) return;
+    setLoading(true); setResult(null); setError(null);
+    try {
+      const r = await fetch("/api/compare", {
+        method:"POST", credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({item_id_a: items[0].id, item_id_b: items[1].id}),
+      });
+      const d = await r.json();
+      if(!r.ok) { setError(d.detail||"对比失败"); } else { setResult(d); setShowModal(true); }
+    } catch(e) { setError("网络错误"); }
+    finally { setLoading(false); }
+  }
+
+  return (<>
+    <div className="compare-bar">
+      <span style={{fontSize:13,fontWeight:700,flexShrink:0}}>⚖️ 对比模式</span>
+      {items.map((it,i)=>(
+        <div key={it.id} className="compare-bar-item" title={it.title}>
+          <span style={{opacity:.6,marginRight:4}}>{i===0?"A:":"B:"}</span>{it.title}
+          <span style={{marginLeft:6,cursor:"pointer",opacity:.7}} onClick={()=>onRemove(it.id)}>✕</span>
+        </div>
+      ))}
+      {items.length<2&&<span style={{fontSize:12,opacity:.6}}>再选一篇政策即可对比</span>}
+      {items.length>=2&&(
+        <button className="btn-compare-go" onClick={doCompare} disabled={loading}>
+          {loading?"分析中…":"🤖 AI对比分析"}
+        </button>
+      )}
+      {error&&<span style={{color:"#fca5a5",fontSize:12}}>{error}</span>}
+      <button className="btn-compare-clear" style={{marginLeft:"auto"}} onClick={onClear}>清空</button>
+    </div>
+
+    {showModal&&result&&(
+      <div className="modal-overlay" onClick={()=>setShowModal(false)}>
+        <div className="modal-box" style={{width:720,maxWidth:"calc(100vw-32px)",padding:"24px 26px",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+            <div style={{fontSize:16,fontWeight:800}}>⚖️ 政策对比分析</div>
+            <button className="btn-cancel" onClick={()=>setShowModal(false)}>关闭</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+            {[result.item_a,result.item_b].map((it,i)=>(
+              <div key={i} style={{background:"#f8fafc",borderRadius:8,padding:"10px 12px"}}>
+                <div style={{fontWeight:700,fontSize:11,color:"#6366f1",marginBottom:4}}>文件{i===0?"A":"B"}</div>
+                <div style={{fontSize:13,color:"#0f172a",fontWeight:600}}>{it.title}</div>
+                {it.date&&<div style={{fontSize:11,color:"#94a3b8",marginTop:3}}>{it.date}</div>}
+              </div>
+            ))}
+          </div>
+          {result.compare?.summary&&(
+            <div style={{background:"#eef2ff",borderRadius:8,padding:"12px 14px",marginBottom:14,fontSize:14,color:"#3730a3",fontWeight:600}}>
+              💡 {result.compare.summary}
+            </div>
+          )}
+          {[
+            {key:"key_diffs",title:"🔄 核心差异"},
+            {key:"added",    title:"➕ 新增要求"},
+            {key:"removed",  title:"➖ 删除/放宽"},
+            {key:"actions",  title:"✅ 企业应对建议"},
+          ].map(({key,title})=>result.compare?.[key]?.length>0&&(
+            <div key={key} className="compare-section">
+              <h4>{title}</h4>
+              <ul>{result.compare[key].map((s,i)=><li key={i}>{s}</li>)}</ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+  </>);
+}
+
+// ── NotificationsView ─────────────────────────────────────
+function NotificationsView({onUnreadChange}) {
+  const [tab,setTab]         = useState("unread");
+  const [notifs,setNotifs]   = useState([]);
+  const [total,setTotal]     = useState(0);
+  const [unread,setUnread]   = useState(0);
+  const [loading,setLoading] = useState(false);
+  const [offset,setOffset]   = useState(0);
+  const LIMIT = 40;
+
+  async function load(off,unreadOnly) {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/notifications?unread_only=${unreadOnly}&limit=${LIMIT}&offset=${off}`,{credentials:"include"});
+      const d = await r.json();
+      setNotifs(d.notifications||[]); setTotal(d.total||0); setUnread(d.unread||0);
+      if(onUnreadChange) onUnreadChange(d.unread||0);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(()=>{ setOffset(0); load(0, tab==="unread"); },[tab]);
+  const prevOff2 = useRef(0);
+  useEffect(()=>{ if(offset!==prevOff2.current){prevOff2.current=offset;load(offset,tab==="unread");} },[offset]);
+
+  async function markRead(id) { await fetch(`/api/notifications/${id}/read`,{method:"POST",credentials:"include"}); load(offset, tab==="unread"); }
+  async function markAllRead() { await fetch("/api/notifications/read-all",{method:"POST",credentials:"include"}); load(0, tab==="unread"); }
+
+  const totalPages  = Math.ceil(total/LIMIT);
+  const currentPage = Math.floor(offset/LIMIT)+1;
+
+  return (
+    <div>
+      <div className="notif-toolbar">
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div className="notif-tabs">
+            <button className={`notif-tab ${tab==="unread"?"active":""}`} onClick={()=>{setTab("unread");setOffset(0);}}>未读 {unread>0&&<span className="notif-badge">{unread}</span>}</button>
+            <button className={`notif-tab ${tab==="all"?"active":""}`} onClick={()=>{setTab("all");setOffset(0);}}>全部</button>
+          </div>
+          <span style={{fontSize:12,color:"#94a3b8"}}>共 {total} 条</span>
+        </div>
+        {unread>0&&<button className="btn-secondary" onClick={markAllRead}>✓ 全部标记已读</button>}
+      </div>
+      {loading?<div className="loading"><div className="spinner"/>加载中…</div>
+       :notifs.length===0?(<div className="empty"><div className="empty-icon">{tab==="unread"?"🎉":"📭"}</div><div>{tab==="unread"?"暂无未读通知":"暂无通知"}</div><div style={{fontSize:12,marginTop:8,color:"#94a3b8"}}>匹配订阅的新内容会在这里显示</div></div>)
+       :(
+        <>
+          <div className="notif-list">
+            {notifs.map(n=>(
+              <div key={n.id} className={`notif-item ${n.is_read?"read":"unread"}`}>
+                <div className={`notif-dot ${n.is_read?"read":""}`}/>
+                <div className="notif-body">
+                  <div className="notif-message">{n.message}</div>
+                  <div className="notif-meta">
+                    <span>🕐 {fmtTs(n.created_at)}</span>
+                    {n.sub_name&&<span>📬 {n.sub_name}</span>}
+                    {n.item_region&&n.item_region!=="全国"&&<span>📍{n.item_region}</span>}
+                    {n.item_source&&<span>{n.item_source}</span>}
+                  </div>
+                </div>
+                <div className="notif-action">
+                  {n.item_url&&<button className="btn-mark-read" onClick={e=>{e.stopPropagation();window.open(n.item_url,"_blank");}}>查看 →</button>}
+                  {!n.is_read&&<button className="btn-mark-read" onClick={e=>{e.stopPropagation();markRead(n.id);}}>已读</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {totalPages>1&&<div className="pagination"><button className="pg-btn" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-LIMIT))}>← 上一页</button><span className="pg-info">{currentPage}/{totalPages}</span><button className="pg-btn" disabled={offset+LIMIT>=total} onClick={()=>setOffset(offset+LIMIT)}>下一页 →</button></div>}
+        </>
+       )}
+    </div>
+  );
+}
+
+// ── ScopeView（表单1-4落地）──────────────────────────────
+function ScopeView() {
+  const [data,setData] = useState(null);
+  const [saving,setSaving] = useState(false);
+  const [err,setErr] = useState("");
+  const [ok,setOk] = useState("");
+
+  const OPTS = [
+    {v:"M", l:"Must（必须）"},
+    {v:"S", l:"Should（应该）"},
+    {v:"C", l:"Could（可以）"},
+    {v:"W", l:"Won't（不做）"},
+  ];
+
+  async function load(){
+    setErr("");
+    const r = await fetch("/api/scope", {credentials:"include"});
+    if(!r.ok){ setErr("加载失败"); return; }
+    const d = await r.json();
+    setData(d);
+  }
+
+  useEffect(()=>{ load(); },[]);
+
+  function update(path, value){
+    setOk("");
+    setData(prev=>{
+      const next = JSON.parse(JSON.stringify(prev||{}));
+      let cur = next.config;
+      for(let i=0;i<path.length-1;i++){
+        const k = path[i];
+        cur[k] = (cur[k]===undefined || cur[k]===null) ? {} : cur[k];
+        cur = cur[k];
+      }
+      cur[path[path.length-1]] = value;
+      return next;
+    });
+  }
+
+  async function save(){
+    setErr(""); setOk("");
+    if(!data?.config) return;
+    setSaving(true);
+    try{
+      const r = await fetch("/api/scope", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include", body: JSON.stringify({config: data.config})});
+      const d = await r.json();
+      if(!r.ok){ setErr(d.detail||"保存失败"); return; }
+      setData(d);
+      setOk("已保存");
+    } finally { setSaving(false); }
+  }
+
+  if(!data) return <div className="loading"><div className="spinner"/>加载中…</div>;
+
+  const cfg = data.config || {};
+  const keyProvincesStr = (cfg.form1?.key_provinces||[]).join("，");
+
+  const Row = ({label, children}) => (
+    <div style={{display:"grid", gridTemplateColumns:"260px 1fr", gap:12, padding:"10px 0", borderBottom:"1px solid #f1f5f9"}}>
+      <div style={{fontSize:12, fontWeight:700, color:"#334155"}}>{label}</div>
+      <div>{children}</div>
+    </div>
+  );
+
+  const Select = ({value,onChange}) => (
+    <select value={value||"C"} onChange={e=>onChange(e.target.value)}>
+      {OPTS.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+    </select>
+  );
+
+  return (
+    <div style={{padding:"0 2px"}}>
+      <div className="result-bar" style={{marginBottom:12}}>
+        <span>🧭 项目配置 / Scope（表单1-4）</span>
+        <span style={{display:"flex", gap:8, alignItems:"center"}}>
+          {ok&&<span style={{fontSize:12,color:"#16a34a",fontWeight:700}}>{ok}</span>}
+          {err&&<span style={{fontSize:12,color:"#dc2626",fontWeight:700}}>{err}</span>}
+          <button className="btn-secondary" onClick={load}>刷新</button>
+          <button className="btn-primary" style={{width:"auto", padding:"8px 16px"}} disabled={saving} onClick={save}>{saving?"保存中…":"保存"}</button>
+        </span>
+      </div>
+
+      <div className="filter-card" style={{padding:"16px 18px"}}>
+        <div className="dash-section-title">表单1：信息范围（我们覆盖什么）</div>
+        <Row label="内容桶（buckets）">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+            <div>政策 <Select value={cfg.form1?.buckets?.policy} onChange={v=>update(["form1","buckets","policy"],v)}/></div>
+            <div>补贴 <Select value={cfg.form1?.buckets?.subsidy} onChange={v=>update(["form1","buckets","subsidy"],v)}/></div>
+            <div>招标 <Select value={cfg.form1?.buckets?.tender} onChange={v=>update(["form1","buckets","tender"],v)}/></div>
+            <div>合规 <Select value={cfg.form1?.buckets?.compliance} onChange={v=>update(["form1","buckets","compliance"],v)}/></div>
+          </div>
+        </Row>
+        <Row label="地域覆盖模式">
+          <select value={cfg.form1?.geo_mode||"key_provinces"} onChange={e=>update(["form1","geo_mode"],e.target.value)}>
+            <option value="key_provinces">重点省优先（推荐）</option>
+            <option value="nationwide">全国扫面</option>
+          </select>
+        </Row>
+        <Row label="重点省列表（逗号/空格分隔）">
+          <input type="text" value={keyProvincesStr} onChange={e=>{
+            const arr = e.target.value.split(/[，,\s]+/).map(x=>x.trim()).filter(Boolean);
+            update(["form1","key_provinces"], arr);
+          }} placeholder="例如：广东 江苏 浙江 山东 内蒙古" />
+        </Row>
+        <Row label="业务链/场景（先占位）">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+            <div>工商业储能 <Select value={cfg.form1?.scenarios?.["工商业储能"]} onChange={v=>update(["form1","scenarios","工商业储能"],v)}/></div>
+            <div>独立/共享储能 <Select value={cfg.form1?.scenarios?.["独立/共享储能"]} onChange={v=>update(["form1","scenarios","独立/共享储能"],v)}/></div>
+            <div>电网侧 <Select value={cfg.form1?.scenarios?.["电网侧"]} onChange={v=>update(["form1","scenarios","电网侧"],v)}/></div>
+          </div>
+        </Row>
+      </div>
+
+      <div className="filter-card" style={{padding:"16px 18px"}}>
+        <div className="dash-section-title">表单2：数据源与采集能力（我们能抓什么）</div>
+        <Row label="官方站点（部委/省级）"><Select value={cfg.form2?.official_sites} onChange={v=>update(["form2","official_sites"],v)}/></Row>
+        <Row label="交易/公共资源平台"><Select value={cfg.form2?.trading_centers} onChange={v=>update(["form2","trading_centers"],v)}/></Row>
+        <Row label="电网/央企采购平台（ECP等）"><Select value={cfg.form2?.grid_ecp} onChange={v=>update(["form2","grid_ecp"],v)}/></Row>
+        <Row label="聚合站补漏（仅公开信息）"><Select value={cfg.form2?.aggregators} onChange={v=>update(["form2","aggregators"],v)}/></Row>
+        <Row label="公众号/通知类"><Select value={cfg.form2?.wechat_notices} onChange={v=>update(["form2","wechat_notices"],v)}/></Row>
+        <Row label="需要登录/付费/重反爬（不做）"><Select value={cfg.form2?.login_paywalled} onChange={v=>update(["form2","login_paywalled"],v)}/></Row>
+      </div>
+
+      <div className="filter-card" style={{padding:"16px 18px"}}>
+        <div className="dash-section-title">表单3：结构化字段（我们承诺提取到什么粒度）</div>
+        {Object.entries(cfg.form3?.fields||{}).map(([k,v])=> (
+          <Row key={k} label={k}><Select value={v} onChange={nv=>update(["form3","fields",k],nv)}/></Row>
+        ))}
+      </div>
+
+      <div className="filter-card" style={{padding:"16px 18px"}}>
+        <div className="dash-section-title">表单4：交付链路（网站/公众号/小程序提醒）</div>
+        <Row label="网站（检索+详情）"><Select value={cfg.form4?.website} onChange={v=>update(["form4","website"],v)}/></Row>
+        <Row label="微信公众号提醒（占位）"><Select value={cfg.form4?.wechat_oa} onChange={v=>update(["form4","wechat_oa"],v)}/></Row>
+        <Row label="小程序（订阅/收藏/搜索入口）"><Select value={cfg.form4?.mini_program} onChange={v=>update(["form4","mini_program"],v)}/></Row>
+        <Row label="提醒策略（占位）">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+            <div>高优先级提醒 <Select value={cfg.form4?.alert_rules?.high_priority} onChange={v=>update(["form4","alert_rules","high_priority"],v)}/></div>
+            <div>每日摘要 <Select value={cfg.form4?.alert_rules?.daily_digest} onChange={v=>update(["form4","alert_rules","daily_digest"],v)}/></div>
+            <div>实时推送 <Select value={cfg.form4?.alert_rules?.real_time} onChange={v=>update(["form4","alert_rules","real_time"],v)}/></div>
+          </div>
+        </Row>
+      </div>
+
+      <div style={{fontSize:12, color:"#94a3b8", marginTop:10}}>
+        说明：今晚先把表单落地为"可保存的项目配置"。第二步再把它与 sources.yaml 自动开关、筛选默认值、提醒策略等做更深联动。
+      </div>
+    </div>
+  );
+}
+
+// ── SubscriptionsView ─────────────────────────────────────
+function SubscriptionsView({smtpConfigured}) {
+  const [subs,setSubs]       = useState([]);
+  const [loading,setLoading] = useState(false);
+  const [showForm,setShowForm]= useState(false);
+  const [saving,setSaving]   = useState(false);
+  const [saveErr,setSaveErr] = useState("");
+  const [digestResult,setDigest] = useState(null);
+  const [digestLoading,setDigestLoading] = useState(false);
+  const [matchCounts,setMatchCounts] = useState({});
+  const [matchBusy,setMatchBusy] = useState(false);
+  const [fname,setFname]     = useState("我的订阅");
+  const [fregions,setFRegions]= useState([]);
+  const [fcats,setFCats]     = useState([]);
+  const [fkws,setFKws]       = useState("");
+  const [fbuckets,setFBuckets]= useState([]);
+  const [ffreq,setFFreq]     = useState("daily");
+  const [femail,setFEmail]   = useState("");
+  const [fwebhook,setFWebhook]= useState("");
+
+  async function loadMatchCounts(days=7){
+    setMatchBusy(true);
+    try {
+      const r = await fetch(`/api/digest/daily?days=${days}&brief=true`,{credentials:"include"});
+      const d = await r.json();
+      const map = {};
+      (d.sections||[]).forEach(sec=>{ map[sec.subscription_id] = sec.count||0; });
+      setMatchCounts(map);
+    } catch(ex) {
+      setMatchCounts({});
+    } finally {
+      setMatchBusy(false);
+    }
+  }
+
+  async function loadSubs(){
+    setLoading(true);
+    try {
+      const r = await fetch("/api/subscriptions",{credentials:"include"});
+      const d = await r.json();
+      const list = d.subscriptions||[];
+      setSubs(list);
+      // 订阅列表里展示"近期匹配数量"（近7天）
+      if(list.length>0) loadMatchCounts(7);
+      else setMatchCounts({});
+    } finally {setLoading(false);}
+  }
+  useEffect(()=>{loadSubs();},[]);
+
+  async function save(){
+    setSaveErr(""); setSaving(true);
+    try {
+      const kws = fkws.split(/[,，\s]+/).map(k=>k.trim()).filter(Boolean);
+      const r = await fetch("/api/subscriptions",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",
+        body:JSON.stringify({name:fname,regions:fregions,categories:fcats,keywords:kws,buckets:fbuckets,frequency:ffreq,notify_email:femail,webhook_url:fwebhook})});
+      const d = await r.json();
+      if(!r.ok) { setSaveErr(d.detail||"创建失败"); return; }
+      setShowForm(false); resetForm(); loadSubs();
+    } catch(ex){ setSaveErr(ex.message); } finally { setSaving(false); }
+  }
+  function resetForm(){ setFname("我的订阅");setFRegions([]);setFCats([]);setFKws("");setFBuckets([]);setFFreq("daily");setFEmail("");setFWebhook(""); }
+
+  async function deleteSub(id){
+    if(!confirm("确认删除该订阅？")) return;
+    await fetch(`/api/subscriptions/${id}`,{method:"DELETE",credentials:"include"});
+    loadSubs();
+  }
+
+  async function runDigest(){
+    setDigestLoading(true); setDigest(null);
+    try { const r = await fetch("/api/digest/daily?days=1",{credentials:"include"}); const d = await r.json(); setDigest(d); } finally { setDigestLoading(false); }
+  }
+
+  async function downloadReport(){
+    const r = await fetch("/api/report/weekly?format=md",{credentials:"include"});
+    const text = await r.text();
+    const blob = new Blob([text],{type:"text/markdown"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href=url; a.download=`policy_weekly_${new Date().toISOString().slice(0,10)}.md`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>📬 订阅管理</div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn-secondary" onClick={runDigest} disabled={digestLoading}>{digestLoading?"生成中…":"📄 今日摘要"}</button>
+          <button className="btn-secondary" onClick={downloadReport}>⬇️ 下载周报 .md</button>
+          <button className="btn-create" onClick={()=>{setShowForm(!showForm);setSaveErr("");}}>＋ 新建订阅</button>
+        </div>
+      </div>
+      {smtpConfigured?<div className="smtp-hint">✅ SMTP 已配置：设置「通知邮箱」后，即时频率订阅会自动发送邮件</div>:<div className="smtp-warn">📬 SMTP 未配置，仅提供站内通知。详见 README。</div>}
+      {showForm&&(
+        <div className="create-form active">
+          <div style={{fontSize:13,fontWeight:700,color:"#0f172a",marginBottom:14}}>新建订阅</div>
+          {saveErr&&<div className="auth-error" style={{marginBottom:14}}>⚠️ {saveErr}</div>}
+          <div className="form-row">
+            <div className="form-field"><label>订阅名称 *</label><input value={fname} onChange={e=>setFname(e.target.value)} placeholder="如：储能招标日报"/></div>
+            <div className="form-field"><label>推送频率</label><select value={ffreq} onChange={e=>setFFreq(e.target.value)}><option value="daily">📅 每日汇总</option><option value="instant">⚡ 即时推送</option></select></div>
+          </div>
+          <div className="form-section"><div className="form-section-title">关键词（逗号/空格分隔，为空=不限）</div><input type="text" value={fkws} onChange={e=>setFKws(e.target.value)} placeholder="PCS, EMS, 并网测试…" style={{padding:"7px 10px",border:"1.5px solid var(--border)",borderRadius:7,fontSize:13,width:"100%"}}/></div>
+          <div className="form-section"><div className="form-section-title">监控地区（为空=全国）</div><div className="chip-group">{REGION_LIST.map(r=><button key={r} className={`chip ${fregions.includes(r)?"active":""}`} onClick={()=>setFRegions(toggle(fregions,r))}>{r}</button>)}</div></div>
+          <div className="form-section"><div className="form-section-title">内容桶（为空=全部）</div><div className="chip-group">{BUCKET_OPTS.map(b=><button key={b.v} className={`chip ${fbuckets.includes(b.v)?"active":""}`} onClick={()=>setFBuckets(toggle(fbuckets,b.v))}>{b.l}</button>)}</div></div>
+          <div className="form-section"><div className="form-section-title">分类筛选（为空=全部）</div><div className="chip-group">{CATEGORY_TYPES.map(c=>{const i=CATEGORY_TYPES.indexOf(c);const color=CAT_COLORS[i]||"#64748b";const bg=CAT_BG[i]||"#f1f5f9";const on=fcats.includes(c);return <button key={c} className="cat-chip" style={on?{background:color,borderColor:color,color:"#fff"}:{background:bg,borderColor:color+"44",color}} onClick={()=>setFCats(toggle(fcats,c))}>{c}</button>;})}</div></div>
+          <div className="form-row" style={{marginBottom:16}}>
+            <div className="form-field"><label>通知邮箱（可选）</label><input type="email" value={femail} onChange={e=>setFEmail(e.target.value)} placeholder="team@company.com"/><div className="form-hint">{ffreq==="instant"?"即时推送邮件":"摘要推送邮件"}</div></div>
+            <div className="form-field"><label>Webhook URL（占位）</label><input type="url" value={fwebhook} onChange={e=>setFWebhook(e.target.value)} placeholder="https://…"/><div className="form-hint">企业微信/钉钉 Webhook（未来版本）</div></div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn-cancel" onClick={()=>{setShowForm(false);setSaveErr("");resetForm();}}>取消</button>
+            <button className="btn-create" onClick={save} disabled={saving||!fname.trim()}>{saving?"保存中…":"✓ 创建订阅"}</button>
+          </div>
+        </div>
+      )}
+      {loading?<div className="loading"><div className="spinner"/>加载中…</div>
+       :subs.length===0&&!showForm?(<div className="empty"><div className="empty-icon">📭</div><div>暂无订阅</div><div style={{fontSize:12,marginTop:8}}>点击「新建订阅」创建第一个</div></div>)
+       :subs.map(s=>(
+        <div key={s.id} className="sub-card">
+          <div className="sub-card-header">
+            <div><span className="sub-name">{s.name}</span><span className={`sub-freq ${s.frequency==="instant"?"instant":""}`}>{s.frequency==="instant"?"⚡ 即时":"📅 每日"}</span></div>
+            <button className="btn-delete" onClick={()=>deleteSub(s.id)}>删除</button>
+          </div>
+          <div className="sub-meta">
+            {s.regions&&s.regions.length>0&&s.regions.map(r=><span key={r} className="sub-tag">📍{r}</span>)}
+            {s.buckets&&s.buckets.length>0&&s.buckets.map(b=><span key={b} className="sub-tag">{BUCKET_OPTS.find(x=>x.v===b)?.l||b}</span>)}
+            {s.keywords&&s.keywords.length>0&&<span className="sub-tag">🔍 {s.keywords.slice(0,3).join("、")}{s.keywords.length>3?`…+${s.keywords.length-3}`:""}</span>}
+            {s.categories&&s.categories.length>0&&<span className="sub-tag">📂 {s.categories.length} 个分类</span>}
+            {s.notify_email&&<span className="sub-tag" title={s.notify_email} style={{background:"#f0fdf4",color:"#16a34a"}}>📧 邮件推送已开启</span>}
+          </div>
+          <div style={{fontSize:12,color:"#64748b",marginTop:8}}>
+            匹配到 <strong style={{color:"#0f172a"}}>{matchBusy?"…":(matchCounts[s.id]??0)}</strong> 条近期政策 <span style={{color:"#94a3b8"}}>（近7天）</span>
+          </div>
+          <div style={{fontSize:11,color:"#94a3b8",marginTop:6}}>创建于 {s.created_at?s.created_at.slice(0,10):"-"}</div>
+        </div>
+       ))}
+      {digestResult&&(
+        <div style={{marginTop:16,background:"#fff",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:16,boxShadow:"var(--shadow)"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#0f172a",marginBottom:12}}>📄 今日摘要 - {digestResult.period}</div>
+          {digestResult.sections&&digestResult.sections.length===0?<div style={{color:"#94a3b8",fontSize:12}}>今日暂无匹配内容</div>:digestResult.sections&&digestResult.sections.map(sec=>(
+            <div key={sec.subscription_id} style={{marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#475569",marginBottom:6}}>{sec.subscription_name} ({sec.count} 条)</div>
+              {sec.items.slice(0,5).map(it=>(
+                <div key={it.id} style={{padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:12}}>
+                  <a href={it.url} target="_blank" rel="noreferrer" style={{color:"var(--primary)",textDecoration:"none",fontWeight:500}}>{it.title}</a>
+                  <span style={{marginLeft:8,color:"#94a3b8"}}>{it.date?it.date.slice(0,10):""}</span>
+                </div>
+              ))}
+              {sec.count>5&&<div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>…还有 {sec.count-5} 条</div>}
+            </div>
+          ))}
+          <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>生成时间：{digestResult.generated_at?digestResult.generated_at.slice(0,19):""}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── SearchView（问政策 · FTS5 全文检索）──────────────────────
+function SearchView() {
+  const [q,setQ]             = useState("");
+  const [inputQ,setInputQ]   = useState("");
+  const [results,setResults] = useState(null);
+  const [loading,setLoading] = useState(false);
+  const [limit,setLimit]     = useState(20);
+  const [selItem,setSelItem] = useState(null);
+
+  async function doSearch(query) {
+    if(!query.trim()) return;
+    setLoading(true); setResults(null);
+    try {
+      const r = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,{credentials:"include"});
+      const d = await r.json();
+      setResults(d);
+    } catch(e) { setResults({error:e.message,items:[],total:0}); }
+    finally { setLoading(false); }
+  }
+
+  function submit(e) { e.preventDefault(); const q2=inputQ.trim(); if(q2){setQ(q2);doSearch(q2);} }
+
+  const EXAMPLES = ["储能补贴","并网测试要求","BESS消防标准","试点项目申报","电化学储能安全"];
+
+  return (
+    <div className="fts-wrap">
+      <div className="fts-hero">
+        <div className="fts-hero-title">🔍 问政策 · 全文检索</div>
+        <div className="fts-hero-sub">基于 SQLite FTS5 · 秒级搜索 title / 摘要 / 正文全文 · 0 成本</div>
+        <form onSubmit={submit} className="fts-search-row">
+          <input
+            className="fts-input"
+            type="text"
+            autoFocus
+            placeholder="输入关键词，如：补贴申报、消防验收、并网检测…"
+            value={inputQ}
+            onChange={e=>setInputQ(e.target.value)}
+          />
+          <button type="submit" className="fts-btn" disabled={loading||!inputQ.trim()}>
+            {loading?"搜索中…":"搜索"}
+          </button>
+        </form>
+        <div className="fts-hint">
+          示例：{EXAMPLES.map(ex=>(
+            <span key={ex} style={{cursor:"pointer",marginRight:10,textDecoration:"underline dotted",opacity:.8}}
+              onClick={()=>{setInputQ(ex);setQ(ex);doSearch(ex);}}>
+              {ex}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* 结果 */}
+      {loading && <div className="loading"><div className="spinner"/>全文检索中…</div>}
+
+      {results && !loading && (
+        <>
+          <div className="result-bar" style={{marginBottom:10}}>
+            <span>「{results.q}」共找到 <strong>{results.total}</strong> 条</span>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:11,color:"#94a3b8"}}>最多显示</span>
+              <select value={limit} onChange={e=>{setLimit(Number(e.target.value));doSearch(q);}} style={{width:70,padding:"3px 6px",fontSize:12}}>
+                {[10,20,50,100].map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {results.error && <div style={{color:"#dc2626",fontSize:12,marginBottom:12}}>⚠️ {results.error}</div>}
+
+          {results.items.length===0 && !results.error && (
+            <div className="empty"><div className="empty-icon">🔎</div><div>未找到匹配结果</div>
+              <div style={{fontSize:12,marginTop:8,color:"#94a3b8"}}>
+                💡 提示：尝试更短的关键词，或运行 <code>python rebuild_fts.py</code> 重建索引
+              </div>
+            </div>
+          )}
+
+          <div>
+            {results.items.map(item=>(
+              <div key={item.id} className="fts-result-item" onClick={()=>setSelItem(item)}>
+                <div className="fts-result-title">{item.title}</div>
+                {item.snippet && (
+                  <div className="fts-result-snippet">{item.snippet}</div>
+                )}
+                <div className="fts-result-meta">
+                  <span className="badge badge-source">{item.source_name||"-"}</span>
+                  {item.region&&item.region!=="全国"&&<span className="badge badge-region">{item.region}</span>}
+                  {item.date&&<span className="badge badge-level">{item.date.slice(0,10)}</span>}
+                  {item.status&&item.status!=="现行"&&<span className={`badge badge-status-${item.status}`}>{item.status}</span>}
+                  {(item.version_count||0)>1&&<span className="badge-version">🔄 ×{item.version_count}</span>}
+                  {(item.categories||[]).slice(0,2).map(c=>{
+                    const i=CATEGORY_TYPES.indexOf(c);
+                    return <span key={c} className="badge" style={{background:CAT_BG[i]||"#f1f5f9",color:CAT_COLORS[i]||"#64748b",border:`1px solid ${(CAT_COLORS[i]||"#64748b")}33`}}>{c}</span>;
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!results && !loading && (
+        <div style={{textAlign:"center",padding:"40px 0",color:"#94a3b8"}}>
+          <div style={{fontSize:36,marginBottom:10}}>🔍</div>
+          <div style={{fontSize:13}}>输入关键词开始全文搜索</div>
+          <div style={{fontSize:11,marginTop:6}}>支持中文短语 · 覆盖政策全文内容（含正文存档）</div>
+        </div>
+      )}
+
+      <ItemModal item={selItem} onClose={()=>setSelItem(null)} isLoggedIn={true}/>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// PUBLIC APP 组件（无需登录）
+// ══════════════════════════════════════════════════════════
+
+function PublicLatestItem({item}) {
+  function bClass(b) { return {政策:"bucket-policy",补贴:"bucket-subsidy",招标:"bucket-tender",合规:"bucket-compliance"}[b]||"bucket-policy"; }
+  const noDate = !item.date;
+  return (
+    <div className="latest-item" onClick={()=>window.open(item.url,"_blank")}>
+      <span className={`latest-bucket ${bClass(item.bucket)}`}>{item.bucket}</span>
+      <div className="latest-body">
+        <div className="latest-title" title={item.title}>{item.title}</div>
+        <div className="latest-meta">
+          {noDate
+            ? <span className="latest-date" style={{color:"#94a3b8"}}>📅 - <span className="badge-no-date">无日期</span></span>
+            : <span className="latest-date">📅 {fmtDate(item.date)}</span>
+          }
+          {item.source_name&&<span className="latest-source">· {item.source_name}</span>}
+          {item.region&&item.region!=="全国"&&<span className="latest-region">{item.region}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PublicDashboard({onLogin}) {
+  const [dash,setDash]       = useState(null);
+  const [loading,setLoading] = useState(true);
+
+  useEffect(()=>{
+    fetch("/api/public/dashboard?latest_n=10")
+      .then(r=>r.json()).then(setDash).catch(console.error).finally(()=>setLoading(false));
+  },[]);
+
+  if(loading) return <div className="loading"><div className="spinner"/>加载中…</div>;
+  if(!dash)   return <div className="empty"><div className="empty-icon">⚠️</div>加载失败，请刷新重试</div>;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16,padding:"16px 14px"}}>
+      <div className="stat-cards">
+        {[{k:"收录条目",v:dash.total,sub:"政策/招标/标准"},{k:"近7天新增",v:dash.recent_7d,sub:"持续更新中"}].map(c=>(
+          <div key={c.k} className="stat-card"><div className="stat-card-label">{c.k}</div><div className="stat-card-value">{c.v}</div><div className="stat-card-sub">{c.sub}</div></div>
+        ))}
+        <div className="stat-card" style={{gridColumn:"span 2",background:"linear-gradient(135deg,#eff6ff,#e0f2fe)",border:"1px solid #bfdbfe"}}>
+          <div className="stat-card-label" style={{color:"#1e40af"}}>🔒 登录解锁更多</div>
+          <div style={{fontSize:12,color:"#1e40af",marginTop:6,lineHeight:1.7}}>全量列表 · 多维筛选 · 订阅推送 · 周报导出 · 版本追踪 · 数据源状态</div>
+          <button className="btn-login-header" style={{marginTop:10,width:"auto",padding:"6px 18px"}} onClick={onLogin}>立即登录/注册 →</button>
+        </div>
+      </div>
+
+      <div className="latest-wrap">
+        <div className="latest-header">
+          <span className="latest-header-title">🕐 最新动态 Top 10</span>
+          <span style={{fontSize:11,color:"#94a3b8"}}>更新于 {dash.updated_at?.slice(0,16)||"-"}</span>
+        </div>
+        {dash.latest.length===0
+          ?<div className="empty" style={{padding:"24px 0"}}><div>暂无数据</div></div>
+          :dash.latest.map(item=><PublicLatestItem key={item.id} item={item}/>)
+        }
+      </div>
+
+      <div className="lock-notice">
+        <p>🔐 登录后可查看全量政策列表、使用多维筛选、创建订阅规则并接收新政策推送。</p>
+        <button className="btn-primary" style={{width:"auto",padding:"8px 24px"}} onClick={onLogin}>登录 / 注册账号</button>
+      </div>
+    </div>
+  );
+}
+
+function PublicItems({onLogin}) {
+  const [items,setItems]     = useState([]);
+  const [loading,setLoading] = useState(true);
+  const hlTags = new Set(["储能","PCS","BMS","EMS","补贴","招标"]);
+
+  useEffect(()=>{
+    fetch("/api/public/items")
+      .then(r=>r.json()).then(d=>setItems(d.items||[])).catch(console.error).finally(()=>setLoading(false));
+  },[]);
+
+  if(loading) return <div className="loading"><div className="spinner"/>加载中…</div>;
+
+  return (
+    <div style={{padding:"16px 14px"}}>
+      <div className="result-bar" style={{marginBottom:12}}>
+        <span>最近 <strong>{items.length}</strong> 条（公开只读）</span>
+        <span style={{fontSize:11,color:"#94a3b8"}}>登录后可查看全量数据与筛选</span>
+      </div>
+      <div className="item-list">
+        {items.map(item=>(
+          <div key={item.id} className="item-card" onClick={()=>window.open(item.url,"_blank")}>
+            <div className="card-top">
+              <div className="card-title">
+                <a href={item.url} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()}>{item.title}</a>
+              </div>
+              <div className="card-meta-right">
+                <span className="card-date">{fmtDate(item.date)}</span>
+                {item.doc_no&&<span className="card-docno">{item.doc_no}</span>}
+              </div>
+            </div>
+            {item.summary&&<div className="card-summary">{item.summary}</div>}
+            <div className="card-footer">
+              <span className="badge badge-source">{item.source_name}</span>
+              {item.region&&item.region!=="全国"&&<span className="badge badge-region">{item.region}</span>}
+              {item.level&&<span className="badge badge-level">{item.level}级</span>}
+              {(item.version_count||0)>1&&<span className="badge-version">🔄 ×{item.version_count}</span>}
+              {(item.categories||[]).slice(0,2).map(c=>{const i=CATEGORY_TYPES.indexOf(c);const color=CAT_COLORS[i]||"#64748b";const bg=CAT_BG[i]||"#f1f5f9";return <span key={c} className="badge" style={{background:bg,color,border:`1px solid ${color}33`}}>{c}</span>;})}
+              {(item.tags||[]).slice(0,4).map(t=><span key={t} className={`tag-chip ${hlTags.has(t)?"hl":""}`}>#{t}</span>)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="lock-notice" style={{marginTop:20}}>
+        <p>📋 仅展示最近10条。登录后可访问全量列表（支持多维筛选、关键词搜索）。</p>
+        <button className="btn-primary" style={{width:"auto",padding:"8px 24px"}} onClick={onLogin}>登录查看全部</button>
+      </div>
+    </div>
+  );
+}
+
+function PublicApp({onLogin}) {
+  const [view,setView] = useState("dashboard");
+  const PUBLIC_VIEWS = [
+    {id:"dashboard",label:"📊 公开看板"},
+    {id:"items",    label:"📋 最新政策"},
+  ];
+  return (
+    <div>
+      <header className="public-header">
+        <div className="logo">⚡ 储能政策情报看板 <span className="logo-sub">China Energy Storage Policy Intel · Public Demo</span></div>
+        <div className="header-right">
+          <span style={{fontSize:12,color:"#94a3b8"}}>公开预览模式</span>
+          <button className="btn-login-header" onClick={onLogin}>登录 / 注册</button>
+        </div>
+      </header>
+
+      <div className="public-banner">
+        <div className="public-badge">🔓 Public Demo</div>
+        <h1>储能政策情报看板</h1>
+        <p>聚合国家能源局、发改委、招采平台等20+数据源，实时追踪储能相关政策、招标、标准、补贴动态。</p>
+        <div className="public-login-hint">
+          登录后解锁：全量列表 · 多维筛选 · 订阅推送 · 版本追踪 · 导出报告
+          <br/><button onClick={onLogin}>立即注册免费体验 →</button>
+        </div>
+      </div>
+
+      <div style={{background:"#fff",borderBottom:"1px solid var(--border)",padding:"0 14px"}}>
+        <div className="view-tabs" style={{marginBottom:0,borderBottom:"none"}}>
+          {PUBLIC_VIEWS.map(v=>(
+            <button key={v.id} className={`view-tab ${view===v.id?"active":""}`} onClick={()=>setView(v.id)} style={{borderRadius:0,border:"none",borderBottom:`2px solid ${view===v.id?"var(--primary)":"transparent"}`,background:"transparent",color:view===v.id?"var(--primary)":"var(--text-muted)"}}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view==="dashboard" && <PublicDashboard onLogin={onLogin}/>}
+      {view==="items"     && <PublicItems     onLogin={onLogin}/>}
+    </div>
+  );
+}
+
+// ── Authenticated App ─────────────────────────────────────
+function App() {
+  const [authState,setAuth]     = useState("checking");
+  const [username,setUser]      = useState("");
+  const [userInfo,setUInfo]     = useState(null);
+  const [view,setView]          = useState("dashboard");
+  const [sidebarOpen,setSidebarOpen] = useState(false);
+  const [stats,setStats]        = useState(null);
+  const [regions,setRegions]    = useState([]);
+  const [regionCounts,setRC]    = useState({});
+  const [catCounts,setCC]       = useState({});
+  const [sources,setSources]    = useState([]);
+  const [unread,setUnread]      = useState(0);
+  const [showAuth,setShowAuth]  = useState(false);
+  const [compareItems,setCompare] = useState([]);  // 对比托盘 max 2
+  const [nowStr,setNowStr]     = useState(()=>{
+    const d=new Date();
+    const p=n=>String(n).padStart(2,"0");
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  });
+
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      const d=new Date();
+      const p=n=>String(n).padStart(2,"0");
+      setNowStr(`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`);
+    },30000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  function addToCompare(item) {
+    setCompare(prev => {
+      if(prev.find(x=>x.id===item.id)) return prev;
+      if(prev.length>=2) return [prev[1], item];
+      return [...prev, item];
+    });
+  }
+  function removeFromCompare(id) { setCompare(prev=>prev.filter(x=>x.id!==id)); }
+
+  useEffect(()=>{
+    fetch("/api/auth/me",{credentials:"include"}).then(r=>{
+      if(r.status===401){setAuth("anon");return null;}
+      return r.json();
+    }).then(d=>{
+      if(d){setUser(d.username);setUInfo(d);setAuth("authed");}
+    }).catch(()=>setAuth("anon"));
+  },[]);
+
+  useEffect(()=>{
+    if(authState!=="authed") return;
+    fetch("/api/stats").then(r=>r.json()).then(setStats).catch(()=>{});
+    fetch("/api/filters/meta").then(r=>r.json()).then(d=>{setRegions(d.regions||[]);setRC(d.region_counts||{});setCC(d.category_counts||{});}).catch(()=>{});
+    fetch("/api/sources").then(r=>r.json()).then(setSources).catch(()=>{});
+    fetch("/api/notifications/count",{credentials:"include"}).then(r=>r.json()).then(d=>setUnread(d.unread||0)).catch(()=>{});
+  },[authState]);
+
+  useEffect(()=>{
+    if(authState!=="authed") return;
+    const t = setInterval(()=>{
+      fetch("/api/notifications/count",{credentials:"include"}).then(r=>r.json()).then(d=>setUnread(d.unread||0)).catch(()=>{});
+    },60000);
+    return ()=>clearInterval(t);
+  },[authState]);
+
+  async function handleLogout(){
+    await fetch("/api/auth/logout",{method:"POST",credentials:"include"});
+    setAuth("anon"); setUser(""); setUInfo(null);
+  }
+
+  // ── 状态路由 ──────────────────────────────────────────
+  if(authState==="checking") return <div className="loading" style={{paddingTop:120}}><div className="spinner"/><div>验证登录状态…</div></div>;
+
+  // 未登录 → 公开模式（含弹出登录框）
+  if(authState==="anon") {
+    return (
+      <>
+        <PublicApp onLogin={()=>setShowAuth(true)}/>
+        {showAuth && (
+          <AuthModal
+            onLogin={(u)=>{setUser(u);setAuth("authed");setShowAuth(false);}}
+            onClose={()=>setShowAuth(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // ── 已登录 ────────────────────────────────────────────
+  const VIEWS = [
+    {id:"dashboard",label:"📊 Dashboard"},
+    {id:"list",     label:"📋 政策列表"},
+    {id:"search",   label:"🔍 问政策"},
+    {id:"bookmarks",label:"⭐ 收藏夹"},
+    {id:"sources",  label:"📡 数据源"},
+    {id:"notifs",   label:"🔔 通知"},
+    {id:"subs",     label:"📬 订阅"},
+    // {id:"scope", label:"🧭 项目配置"},  // 暂隐藏，功能未联动
+  ];
+
+  return (
+    <div>
+      <header className="app-header">
+        <div className="header-left">
+          <button className="hamburger-btn" onClick={()=>setSidebarOpen(true)} aria-label="打开导航">☰</button>
+          <div className="logo">⚡ 储能政策情报看板 <span className="logo-sub">China Energy Storage Policy Intel</span></div>
+        </div>
+        <div className="header-right">
+          <div className="header-stats">
+            {stats&&<><span>📦 <strong>{stats.total}</strong></span><span>📅 近7天 <strong>{stats.recent_7d}</strong></span><span style={{color:"#4ade80"}}>● 本地运行</span></>}
+          </div>
+          <div className="header-time">🕒 {nowStr}</div>
+          <div className="user-badge" title={username}>
+            <span className="user-avatar">{(username||"U").slice(0,1).toUpperCase()}</span>
+            <span className="user-name"><strong>{username}</strong></span>
+          </div>
+          <button className="btn-logout" onClick={handleLogout}>退出</button>
+        </div>
+      </header>
+
+      <div className="app-shell">
+        {sidebarOpen && <div className="sidebar-overlay" onClick={()=>setSidebarOpen(false)} />}
+        <aside className={`nav-sidebar ${sidebarOpen ? "open" : ""}`}>
+          <div className="nav-title">导航</div>
+          <div className="nav-items">
+            {VIEWS.map(v=>{
+              const active = view===v.id;
+              return (
+                <button
+                  key={v.id}
+                  className={`nav-item ${active?"active":""}`}
+                  onClick={()=>{ setView(v.id); setSidebarOpen(false); }}
+                >
+                  <span className="nav-item-label">
+                    {v.label}
+                    {v.id==="notifs"&&unread>0&&<span className="notif-badge" style={{marginLeft:8}}>{unread}</span>}
+                  </span>
+                  {active && <span className="nav-item-glow" />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="nav-footer">
+            <div className="nav-foot-stat">
+              <span className="k">总条目</span>
+              <span className="v">{stats?.total ?? "-"}</span>
+            </div>
+            <div className="nav-foot-stat">
+              <span className="k">近7天</span>
+              <span className="v">{stats?.recent_7d ?? "-"}</span>
+            </div>
+            <div className="nav-foot-hint">提示：列表页支持多维筛选 + 版本追踪 + AI解读</div>
+          </div>
+        </aside>
+
+        <main className="app-main">
+          {view==="dashboard"&&<DashboardView stats={stats} onViewAll={()=>setView("list")}/>}
+          {view==="list"&&<ListView catCounts={catCounts} regions={regions} regionCounts={regionCounts} sources={sources} onAddToCompare={addToCompare} compareIds={compareItems.map(x=>x.id)}/>}
+          {view==="search"&&<SearchView/>}
+          {view==="bookmarks"&&<BookmarksView/>}
+          {view==="sources"&&<SourceStatusView/>}
+          {view==="notifs"&&<NotificationsView onUnreadChange={n=>{setUnread(n);}}/>}
+          {view==="subs"&&<SubscriptionsView smtpConfigured={userInfo?.smtp_configured||false}/>}
+          {view==="scope"&&<ScopeView/>}
+        </main>
+      </div>
+
+      {compareItems.length>0&&<CompareBar items={compareItems} onRemove={removeFromCompare} onClear={()=>setCompare([])}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
