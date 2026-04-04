@@ -252,6 +252,13 @@ async def startup():
     _seed_from_backup()
 
 
+# ── Healthcheck ───────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
+
+
 # ── 主页：Fly.io React SPA ────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
