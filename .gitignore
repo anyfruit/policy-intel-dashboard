@@ -33,6 +33,7 @@ data/
 *.sqlite
 *.sqlite-journal
 *.db
+!seed.db
 
 # Logs
 *.log

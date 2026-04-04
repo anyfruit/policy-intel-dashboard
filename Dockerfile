@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py ./
 COPY static/ ./static/
 COPY templates/ ./templates/
+COPY seed.db ./seed.db
 
 RUN mkdir -p /data
 

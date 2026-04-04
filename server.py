@@ -160,10 +160,51 @@ def _get_stats() -> dict:
 
 # ── 页面路由 ──────────────────────────────────────────────────────────────────
 
+def _seed_from_backup() -> None:
+    """如果 items 表为空，从捆绑的 seed.db 导入初始数据。"""
+    import sqlite3 as _sqlite3
+    seed_path = BASE_DIR / "seed.db"
+    if not seed_path.exists():
+        return
+    conn = get_conn()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    finally:
+        conn.close()
+    if count > 0:
+        return
+    seed_conn = _sqlite3.connect(str(seed_path))
+    seed_conn.row_factory = _sqlite3.Row
+    try:
+        rows = seed_conn.execute("SELECT * FROM items").fetchall()
+        conn = get_conn()
+        try:
+            for row in rows:
+                d = dict(row)
+                conn.execute(
+                    """INSERT OR IGNORE INTO items
+                       (url,title,summary,content,date,region,source_id,source_name,
+                        categories,tags,impact_on,level,status,deadline_date,created_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (d.get("url"), d.get("title"), d.get("summary"), d.get("content"),
+                     d.get("date"), d.get("region"), d.get("source_id"), d.get("source_name"),
+                     d.get("categories", "[]"), d.get("tags", "[]"), d.get("impact_on", "[]"),
+                     d.get("level", "国家"), d.get("status", "现行"), d.get("deadline_date"),
+                     d.get("created_at"), d.get("updated_at")),
+                )
+            conn.commit()
+            print(f"[seed] 从 seed.db 导入 {len(rows)} 条政策数据")
+        finally:
+            conn.close()
+    finally:
+        seed_conn.close()
+
+
 @app.on_event("startup")
 async def startup():
     db.init_db()
     auth.init_users_table()
+    _seed_from_backup()
 
 
 @app.get("/", response_class=HTMLResponse)
