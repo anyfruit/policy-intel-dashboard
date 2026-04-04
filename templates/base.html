@@ -30,11 +30,22 @@
         <span>储能电力政策库</span>
       </a>
 
-      <div class="flex items-center gap-3 text-sm">
+      <!-- 功能导航 -->
+      <div class="hidden md:flex items-center gap-1 text-sm">
+        <a href="/" class="text-blue-200 hover:text-white hover:bg-blue-800 px-3 py-1.5 rounded-md transition-colors">首页</a>
+        {% if user and user.plan in ('basic', 'pro') %}
+          <a href="/compare" class="text-blue-200 hover:text-white hover:bg-blue-800 px-3 py-1.5 rounded-md transition-colors">跨省对比</a>
+          <a href="/subscribe" class="text-blue-200 hover:text-white hover:bg-blue-800 px-3 py-1.5 rounded-md transition-colors">订阅推送</a>
+        {% endif %}
+      </div>
+
+      <div class="flex items-center gap-3 text-sm ml-auto">
         {% if user %}
           <span class="text-blue-200 hidden sm:inline">{{ user.username }}</span>
-          {% if user.is_paid %}
+          {% if user.plan == 'pro' %}
             <span class="bg-yellow-400 text-black text-xs px-2 py-0.5 rounded-full font-bold">PRO</span>
+          {% elif user.plan == 'basic' %}
+            <span class="bg-blue-400 text-white text-xs px-2 py-0.5 rounded-full font-bold">基础版</span>
           {% else %}
             <span class="text-blue-300 text-xs hidden sm:inline">免费版</span>
           {% endif %}

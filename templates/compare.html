@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}跨省政策对比 · 储能电力政策库{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold text-gray-900 mb-2">跨省政策对比</h1>
+  <p class="text-gray-500 text-sm mb-6">选择 2–6 个省份，横向比较政策数量、活跃度及最新动态。专业版可触发 AI 深度分析。</p>
+
+  <!-- 筛选表单 -->
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium text-gray-700 mb-1">选择省份（2–6个，按住 Ctrl/Cmd 多选）</label>
+        <select id="province-select" multiple size="7"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          {% for r in regions %}
+          <option value="{{ r }}">{{ r }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">政策分类（可选）</label>
+        <select id="category-select"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <option value="">全部分类</option>
+          {% for c in category_types %}
+          <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+
+        <button id="btn-compare"
+          class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors text-sm">
+          开始对比
+        </button>
+
+        {% if user and user.plan == 'pro' %}
+        <button id="btn-ai-compare"
+          class="mt-2 w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors text-sm hidden">
+          ✨ AI 深度分析
+        </button>
+        {% else %}
+        <div class="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+          <strong>专业版</strong>可解锁 AI 深度跨省对比分析，联系管理员升级。
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- 对比结果 -->
+  <div id="compare-result" class="hidden">
+    <div id="compare-table-wrap" class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm mb-6">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+          <tr>
+            <th class="px-4 py-3 text-left">省份</th>
+            <th class="px-4 py-3 text-right">政策总数</th>
+            <th class="px-4 py-3 text-right">近90天新增</th>
+            <th class="px-4 py-3 text-left">现行/征求意见/废止</th>
+            <th class="px-4 py-3 text-left">最新政策</th>
+            <th class="px-4 py-3 text-left">发布日期</th>
+          </tr>
+        </thead>
+        <tbody id="compare-tbody" class="divide-y divide-gray-100"></tbody>
+      </table>
+    </div>
+
+    <!-- AI 分析结果 -->
+    <div id="ai-result" class="hidden bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200 rounded-xl p-6 mb-6">
+      <h2 class="text-lg font-bold text-purple-900 mb-4">✨ AI 深度对比分析</h2>
+      <div id="ai-summary" class="text-gray-700 mb-4"></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="ai-profiles"></div>
+      <div id="ai-differences" class="mb-4"></div>
+      <div id="ai-recommendation" class="bg-white rounded-lg p-4 border border-purple-100"></div>
+    </div>
+  </div>
+
+  <!-- 加载状态 -->
+  <div id="loading" class="hidden text-center py-12 text-gray-400">
+    <svg class="animate-spin h-8 w-8 mx-auto mb-3 text-blue-500" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+    </svg>
+    <p>分析中，请稍候…</p>
+  </div>
+
+  <div id="error-msg" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const btnCompare = document.getElementById('btn-compare');
+const btnAI = document.getElementById('btn-ai-compare');
+const loading = document.getElementById('loading');
+const errorMsg = document.getElementById('error-msg');
+const compareResult = document.getElementById('compare-result');
+const aiResult = document.getElementById('ai-result');
+
+let lastProvinces = [];
+let lastCategory = '';
+
+function getSelected() {
+  const sel = document.getElementById('province-select');
+  return Array.from(sel.selectedOptions).map(o => o.value);
+}
+
+function showError(msg) {
+  errorMsg.textContent = msg;
+  errorMsg.classList.remove('hidden');
+  loading.classList.add('hidden');
+}
+
+function renderTable(data) {
+  const tbody = document.getElementById('compare-tbody');
+  tbody.innerHTML = '';
+  for (const row of data) {
+    const dist = row.status_distribution || {};
+    const distStr = [
+      dist['现行'] ? `<span class='text-green-600'>${dist['现行']}现行</span>` : '',
+      dist['征求意见'] ? `<span class='text-yellow-600'>${dist['征求意见']}征求</span>` : '',
+      dist['废止'] ? `<span class='text-gray-400'>${dist['废止']}废止</span>` : '',
+    ].filter(Boolean).join(' / ') || '—';
+
+    const latest = row.latest;
+    const latestTitle = latest
+      ? `<a href="/items/${latest.id}" class="text-blue-600 hover:underline line-clamp-1 max-w-xs inline-block">${escHtml(latest.title)}</a>`
+      : '<span class="text-gray-400">—</span>';
+
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium text-gray-900">${escHtml(row.province)}</td>
+        <td class="px-4 py-3 text-right font-mono text-blue-700">${row.count}</td>
+        <td class="px-4 py-3 text-right font-mono text-green-600">${row.recent_90d}</td>
+        <td class="px-4 py-3 text-xs">${distStr}</td>
+        <td class="px-4 py-3">${latestTitle}</td>
+        <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">${(latest && latest.date) ? latest.date.slice(0,10) : '—'}</td>
+      </tr>
+    `);
+  }
+}
+
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+btnCompare.addEventListener('click', async () => {
+  errorMsg.classList.add('hidden');
+  const provinces = getSelected();
+  if (provinces.length < 2) { showError('请至少选择 2 个省份'); return; }
+  if (provinces.length > 6) { showError('最多选择 6 个省份'); return; }
+
+  lastProvinces = provinces;
+  lastCategory = document.getElementById('category-select').value;
+
+  loading.classList.remove('hidden');
+  compareResult.classList.add('hidden');
+
+  try {
+    const qs = `provinces=${encodeURIComponent(provinces.join(','))}&category=${encodeURIComponent(lastCategory)}`;
+    const resp = await fetch(`/api/compare?${qs}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    renderTable(data.data);
+    compareResult.classList.remove('hidden');
+    aiResult.classList.add('hidden');
+    if (btnAI) btnAI.classList.remove('hidden');
+  } catch(e) {
+    showError('对比失败：' + e.message);
+  } finally {
+    loading.classList.add('hidden');
+  }
+});
+
+{% if user and user.plan == 'pro' %}
+btnAI && btnAI.addEventListener('click', async () => {
+  errorMsg.classList.add('hidden');
+  loading.classList.remove('hidden');
+  aiResult.classList.add('hidden');
+  try {
+    const resp = await fetch('/api/ai/compare', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({provinces: lastProvinces, category: lastCategory}),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    const ai = data.ai_analysis;
+
+    document.getElementById('ai-summary').textContent = ai.summary || '';
+
+    const profiles = document.getElementById('ai-profiles');
+    profiles.innerHTML = '';
+    for (const p of (ai.province_profiles || [])) {
+      const color = p.activity_level === '高' ? 'green' : p.activity_level === '中' ? 'blue' : 'gray';
+      profiles.insertAdjacentHTML('beforeend', `
+        <div class="bg-white rounded-lg p-4 border border-gray-200">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-bold text-gray-900">${escHtml(p.province)}</h3>
+            <span class="text-xs bg-${color}-100 text-${color}-700 px-2 py-0.5 rounded-full">${escHtml(p.activity_level)}活跃度</span>
+          </div>
+          <p class="text-sm text-gray-700 mb-1"><strong>优势：</strong>${escHtml(p.strengths)}</p>
+          <p class="text-sm text-gray-500"><strong>短板：</strong>${escHtml(p.gaps)}</p>
+        </div>
+      `);
+    }
+
+    const diffs = document.getElementById('ai-differences');
+    if ((ai.key_differences || []).length) {
+      diffs.innerHTML = '<h3 class="font-semibold text-gray-800 mb-2">关键差异</h3><ul class="list-disc list-inside space-y-1 text-sm text-gray-700">'
+        + ai.key_differences.map(d => `<li>${escHtml(d)}</li>`).join('')
+        + '</ul>';
+    }
+
+    const rec = document.getElementById('ai-recommendation');
+    rec.innerHTML = `<h3 class="font-semibold text-purple-800 mb-1">推荐省份：${escHtml(ai.recommended_province || '—')}</h3>
+      <p class="text-sm text-gray-700">${escHtml(ai.recommendation_reason || '')}</p>`;
+
+    aiResult.classList.remove('hidden');
+  } catch(e) {
+    showError('AI 分析失败：' + e.message);
+  } finally {
+    loading.classList.add('hidden');
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

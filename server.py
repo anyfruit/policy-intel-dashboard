@@ -1,7 +1,8 @@
 """server.py — 储能电力政策库 Web 服务
 
-免费版：浏览政策列表、按条件筛选、查看政策详情
-付费版：AI 智能检索（语义搜索）、AI 政策解读
+免费版（free）：浏览最新 Top 10、基础搜索、单条详情
+基础版（basic, ¥99/月）：全量浏览 + 筛选、邮件订阅推送、详情全文
+专业版（pro, ¥299/月）：所有基础版功能 + AI 检索/解读、跨省对比、影响评分、周报导出
 """
 
 from __future__ import annotations
@@ -30,17 +31,26 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 # ── 依赖 ─────────────────────────────────────────────────────────────────────
 
 def _get_user_with_plan(access_token: Optional[str] = Cookie(default=None)) -> Optional[dict]:
-    """返回完整用户信息（含 is_paid）或 None。"""
+    """返回完整用户信息（含 plan / is_paid）或 None。"""
     payload = auth._verify_token(access_token or "")
     if not payload:
         return None
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT id, username, email, is_paid FROM users WHERE id=?",
+            "SELECT id, username, email, is_paid, plan FROM users WHERE id=?",
             (int(payload["uid"]),),
         ).fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        u = dict(row)
+        # 向后兼容：plan 字段未设置时，用 is_paid 推导
+        if not u.get("plan") or u["plan"] == "free":
+            if u.get("is_paid"):
+                u["plan"] = "pro"
+        # 反向同步：is_paid 保持与 plan 一致
+        u["is_paid"] = 1 if u.get("plan") in ("basic", "pro") else 0
+        return u
     finally:
         conn.close()
 
@@ -51,12 +61,27 @@ def require_login(user=Depends(_get_user_with_plan)) -> dict:
     return user
 
 
-def require_paid(user=Depends(_get_user_with_plan)) -> dict:
+def require_basic(user=Depends(_get_user_with_plan)) -> dict:
+    """基础版及以上（basic / pro）。"""
     if not user:
         raise HTTPException(status_code=401, detail="请先登录")
-    if not user.get("is_paid"):
-        raise HTTPException(status_code=402, detail="此功能需要付费订阅，请联系管理员升级账户。")
+    if user.get("plan") not in ("basic", "pro"):
+        raise HTTPException(status_code=402, detail="此功能需要基础版或专业版订阅（¥99/月起），请联系管理员升级。")
     return user
+
+
+def require_pro(user=Depends(_get_user_with_plan)) -> dict:
+    """专业版（pro）专属。"""
+    if not user:
+        raise HTTPException(status_code=401, detail="请先登录")
+    if user.get("plan") != "pro":
+        raise HTTPException(status_code=402, detail="此功能需要专业版订阅（¥299/月），请联系管理员升级。")
+    return user
+
+
+def require_paid(user=Depends(_get_user_with_plan)) -> dict:
+    """向后兼容别名 → 等同 require_pro。"""
+    return require_pro(user)
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
@@ -175,10 +200,16 @@ async def index(
     page: int = 1,
     user=Depends(_get_user_with_plan),
 ):
-    items, total = _query_items(q, region, level, status, category, page, limit=20)
+    plan = (user or {}).get("plan", "free")
+    # 免费版：只展示最新 10 条，不允许筛选翻页
+    if plan == "free":
+        items, total = _query_items("", "", "", "", "", 1, limit=10)
+        page, total_pages = 1, 1
+    else:
+        items, total = _query_items(q, region, level, status, category, page, limit=20)
+        total_pages = max(1, (total + 19) // 20)
     regions = _get_regions()
     stats = _get_stats()
-    total_pages = max(1, (total + 19) // 20)
 
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -351,7 +382,7 @@ def _get_anthropic_client():
 
 
 @app.post("/api/ai/search")
-async def ai_search(request: Request, user=Depends(require_paid)):
+async def ai_search(request: Request, user=Depends(require_pro)):
     body = await request.json()
     query = (body.get("query") or "").strip()
     if not query:
@@ -457,7 +488,7 @@ async def ai_search(request: Request, user=Depends(require_paid)):
 
 
 @app.get("/api/ai/interpret/{item_id}")
-async def ai_interpret(item_id: int, user=Depends(require_paid)):
+async def ai_interpret(item_id: int, user=Depends(require_pro)):
     # 检查缓存
     conn = get_conn()
     try:
@@ -548,6 +579,235 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
     return result
 
 
+# ── 跨省对比（Step 5）─────────────────────────────────────────────────────────
+
+@app.get("/compare", response_class=HTMLResponse)
+async def compare_page(request: Request, user=Depends(_get_user_with_plan)):
+    regions = _get_regions()
+    return templates.TemplateResponse("compare.html", {
+        "request": request,
+        "user": user,
+        "regions": regions,
+        "category_types": CATEGORY_TYPES,
+    })
+
+
+@app.get("/api/compare")
+async def api_compare(
+    provinces: str = "",
+    category: str = "",
+    user=Depends(require_basic),
+):
+    """跨省政策对比（基础版及以上）。
+    provinces: 逗号分隔的省份列表，如 "江苏,浙江,安徽"
+    category:  可选，政策分类过滤
+    """
+    province_list = [p.strip() for p in provinces.split(",") if p.strip()]
+    if not province_list:
+        raise HTTPException(400, "请至少指定一个省份")
+    if len(province_list) > 6:
+        raise HTTPException(400, "最多对比 6 个省份")
+
+    conn = get_conn()
+    try:
+        result = []
+        for prov in province_list:
+            cat_clause = "AND categories LIKE ?" if category else ""
+            cat_params = [f"%{category}%"] if category else []
+
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM items WHERE region=? {cat_clause} AND (canonical_id IS NULL)",
+                [prov] + cat_params,
+            ).fetchone()[0]
+
+            latest_row = conn.execute(
+                f"SELECT id, title, date, level, status FROM items WHERE region=? {cat_clause} AND (canonical_id IS NULL) ORDER BY date DESC LIMIT 1",
+                [prov] + cat_params,
+            ).fetchone()
+
+            # 最近 90 天新政策数
+            recent = conn.execute(
+                f"SELECT COUNT(*) FROM items WHERE region=? {cat_clause} AND (canonical_id IS NULL) AND date >= date('now','-90 days')",
+                [prov] + cat_params,
+            ).fetchone()[0]
+
+            # 各状态分布
+            status_rows = conn.execute(
+                f"SELECT status, COUNT(*) as cnt FROM items WHERE region=? {cat_clause} AND (canonical_id IS NULL) GROUP BY status",
+                [prov] + cat_params,
+            ).fetchall()
+            status_dist = {r["status"]: r["cnt"] for r in status_rows}
+
+            result.append({
+                "province": prov,
+                "count": count,
+                "recent_90d": recent,
+                "latest": dict(latest_row) if latest_row else None,
+                "status_distribution": status_dist,
+            })
+    finally:
+        conn.close()
+
+    return {
+        "provinces": province_list,
+        "category": category,
+        "data": result,
+    }
+
+
+@app.post("/api/ai/compare")
+async def api_ai_compare(request: Request, user=Depends(require_pro)):
+    """AI 深度跨省对比分析（专业版）。"""
+    body = await request.json()
+    provinces = body.get("provinces") or []
+    category = (body.get("category") or "").strip()
+
+    if not provinces or len(provinces) < 2:
+        raise HTTPException(400, "请至少指定两个省份")
+
+    # 先获取各省政策摘要
+    conn = get_conn()
+    try:
+        province_summaries = {}
+        for prov in provinces[:6]:
+            cat_clause = "AND categories LIKE ?" if category else ""
+            cat_params = [f"%{category}%"] if category else []
+            rows = conn.execute(
+                f"SELECT title, summary, date, level, status FROM items WHERE region=? {cat_clause} AND (canonical_id IS NULL) ORDER BY date DESC LIMIT 10",
+                [prov] + cat_params,
+            ).fetchall()
+            province_summaries[prov] = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    # 构建给 Claude 的上下文
+    context_parts = []
+    for prov, policies in province_summaries.items():
+        if not policies:
+            context_parts.append(f"## {prov}\n（无相关政策）\n")
+            continue
+        lines = [f"## {prov}（共检索到 {len(policies)} 条）"]
+        for p in policies:
+            lines.append(f"- {p['date'] or ''}  [{p['level'] or ''}] {p['title']}")
+            if p.get("summary"):
+                lines.append(f"  摘要：{p['summary'][:100]}")
+        context_parts.append("\n".join(lines))
+
+    context = "\n\n".join(context_parts)
+    cat_note = f"（分类：{category}）" if category else ""
+
+    client = _get_anthropic_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2500,
+        system="你是中国储能电力政策专家。请用简洁、专业的中文回复，严格按 JSON 格式。",
+        messages=[{
+            "role": "user",
+            "content": f"""请对以下各省的储能电力政策{cat_note}进行横向对比分析：
+
+{context}
+
+请返回 JSON：
+{{
+  "summary": "整体对比概述（2-3句话）",
+  "province_profiles": [
+    {{
+      "province": "省份名",
+      "strengths": "政策优势（1-2句）",
+      "gaps": "政策短板或空白（1句）",
+      "activity_level": "高/中/低"
+    }}
+  ],
+  "key_differences": ["关键差异点1", "关键差异点2", "关键差异点3"],
+  "recommended_province": "综合推荐省份",
+  "recommendation_reason": "推荐理由（1-2句）"
+}}
+只返回 JSON。""",
+        }],
+    )
+
+    ai_text = response.content[0].text.strip()
+    if "```" in ai_text:
+        import re as _re
+        m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", ai_text, _re.DOTALL)
+        if m:
+            ai_text = m.group(1)
+
+    try:
+        ai_result = json.loads(ai_text)
+    except Exception:
+        ai_result = {
+            "summary": "AI 分析暂时不可用",
+            "province_profiles": [],
+            "key_differences": [],
+            "recommended_province": "",
+            "recommendation_reason": "",
+        }
+
+    return {"provinces": provinces, "category": category, "ai_analysis": ai_result}
+
+
+# ── 订阅管理（Step 6b）────────────────────────────────────────────────────────
+
+@app.get("/subscribe", response_class=HTMLResponse)
+async def subscribe_page(request: Request, user=Depends(require_basic)):
+    conn = get_conn()
+    try:
+        sub = conn.execute(
+            "SELECT * FROM subscriptions WHERE user_id=?", (user["id"],)
+        ).fetchone()
+    finally:
+        conn.close()
+    regions = _get_regions()
+    import notifier
+    return templates.TemplateResponse("subscribe.html", {
+        "request": request,
+        "user": user,
+        "sub": dict(sub) if sub else None,
+        "regions": regions,
+        "category_types": CATEGORY_TYPES,
+        "smtp_ok": notifier.smtp_configured(),
+    })
+
+
+@app.post("/subscribe")
+async def subscribe_submit(
+    request: Request,
+    frequency: str = Form("weekly"),
+    filter_region: str = Form(""),
+    filter_category: str = Form(""),
+    user=Depends(require_basic),
+):
+    if frequency not in ("daily", "weekly"):
+        frequency = "weekly"
+    conn = get_conn()
+    try:
+        conn.execute(
+            """INSERT INTO subscriptions (user_id, frequency, filter_region, filter_category)
+               VALUES (?,?,?,?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 frequency=excluded.frequency,
+                 filter_region=excluded.filter_region,
+                 filter_category=excluded.filter_category""",
+            (user["id"], frequency, filter_region, filter_category),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return RedirectResponse("/subscribe?saved=1", status_code=303)
+
+
+@app.delete("/subscribe")
+async def subscribe_delete(user=Depends(require_basic)):
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM subscriptions WHERE user_id=?", (user["id"],))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
 # ── 管理接口 ──────────────────────────────────────────────────────────────────
 
 _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
@@ -555,7 +815,10 @@ _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
 @app.post("/admin/grant-paid")
 async def admin_grant_paid(request: Request):
-    """管理员给用户开通付费权限。需在请求 header 带 X-Admin-Key。"""
+    """管理员给用户设置订阅套餐。需在请求 header 带 X-Admin-Key。
+    Body: { "username": "...", "plan": "free|basic|pro" }
+    也兼容旧接口: { "username": "...", "is_paid": true/false }
+    """
     if not _ADMIN_KEY:
         raise HTTPException(403, "ADMIN_KEY 未配置")
     if request.headers.get("X-Admin-Key") != _ADMIN_KEY:
@@ -563,16 +826,27 @@ async def admin_grant_paid(request: Request):
 
     body = await request.json()
     username = (body.get("username") or "").strip()
-    is_paid = int(bool(body.get("is_paid", True)))
+
+    # 新接口：plan 字段
+    plan = (body.get("plan") or "").strip()
+    if plan not in ("free", "basic", "pro"):
+        # 向后兼容旧接口
+        is_paid = bool(body.get("is_paid", True))
+        plan = "pro" if is_paid else "free"
+
+    is_paid_int = 1 if plan in ("basic", "pro") else 0
 
     conn = get_conn()
     try:
         r = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
         if not r:
             raise HTTPException(404, "用户不存在")
-        conn.execute("UPDATE users SET is_paid=? WHERE username=?", (is_paid, username))
+        conn.execute(
+            "UPDATE users SET is_paid=?, plan=? WHERE username=?",
+            (is_paid_int, plan, username),
+        )
         conn.commit()
     finally:
         conn.close()
 
-    return {"ok": True, "username": username, "is_paid": bool(is_paid)}
+    return {"ok": True, "username": username, "plan": plan, "is_paid": bool(is_paid_int)}

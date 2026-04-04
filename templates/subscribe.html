@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}订阅推送 · 储能电力政策库{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-10">
+  <h1 class="text-2xl font-bold text-gray-900 mb-2">邮件订阅推送</h1>
+  <p class="text-gray-500 text-sm mb-6">新政策发布时自动推送摘要到你的邮箱，可按地区和分类过滤。</p>
+
+  {% if not smtp_ok %}
+  <div class="bg-amber-50 border border-amber-200 text-amber-700 rounded-lg p-4 text-sm mb-6">
+    服务器暂未配置 SMTP，订阅设置可保存，但邮件将在配置完成后才会发出。
+  </div>
+  {% endif %}
+
+  {% if request.query_params.get('saved') %}
+  <div class="bg-green-50 border border-green-200 text-green-700 rounded-lg p-4 text-sm mb-6">
+    订阅设置已保存！
+  </div>
+  {% endif %}
+
+  <form method="post" action="/subscribe" class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-5">
+    <!-- 推送频率 -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">推送频率</label>
+      <div class="flex gap-4">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="frequency" value="daily"
+            {% if sub and sub.frequency == 'daily' %}checked{% endif %}
+            class="accent-blue-600">
+          <span class="text-sm text-gray-700">每日推送</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="frequency" value="weekly"
+            {% if not sub or sub.frequency != 'daily' %}checked{% endif %}
+            class="accent-blue-600">
+          <span class="text-sm text-gray-700">每周推送</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 地区过滤 -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">地区过滤（留空则全国）</label>
+      <select name="filter_region"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        <option value="">全国（不限地区）</option>
+        {% for r in regions %}
+        <option value="{{ r }}" {% if sub and sub.filter_region == r %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- 分类过滤 -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">政策分类过滤（留空则全部）</label>
+      <select name="filter_category"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        <option value="">全部分类</option>
+        {% for c in category_types %}
+        <option value="{{ c }}" {% if sub and sub.filter_category == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- 邮箱提示 -->
+    <div class="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700">
+      邮件将发送至账号邮箱：<strong>{{ user.email or '（未设置，请联系管理员绑定邮箱）' }}</strong>
+    </div>
+
+    <div class="flex items-center gap-3 pt-1">
+      <button type="submit"
+        class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-colors">
+        保存订阅设置
+      </button>
+      {% if sub %}
+      <button type="button" id="btn-unsub"
+        class="text-red-500 hover:text-red-700 text-sm underline transition-colors">
+        取消订阅
+      </button>
+      {% endif %}
+    </div>
+  </form>
+
+  <!-- 订阅套餐说明 -->
+  <div class="mt-8 bg-gray-50 rounded-xl border border-gray-200 p-5">
+    <h2 class="text-sm font-semibold text-gray-700 mb-3">套餐功能对比</h2>
+    <table class="w-full text-xs text-gray-600">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="text-left py-2 font-medium">功能</th>
+          <th class="text-center py-2 font-medium">免费版</th>
+          <th class="text-center py-2 font-medium text-blue-600">基础版 ¥99/月</th>
+          <th class="text-center py-2 font-medium text-purple-600">专业版 ¥299/月</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        <tr><td class="py-2">政策浏览</td><td class="text-center">Top 10</td><td class="text-center">✓ 全量</td><td class="text-center">✓ 全量</td></tr>
+        <tr><td class="py-2">多维筛选</td><td class="text-center">—</td><td class="text-center">✓</td><td class="text-center">✓</td></tr>
+        <tr><td class="py-2">邮件订阅推送</td><td class="text-center">—</td><td class="text-center">✓</td><td class="text-center">✓</td></tr>
+        <tr><td class="py-2">AI 智能检索 / 解读</td><td class="text-center">—</td><td class="text-center">—</td><td class="text-center">✓</td></tr>
+        <tr><td class="py-2">跨省政策对比</td><td class="text-center">—</td><td class="text-center">表格对比</td><td class="text-center">✓ + AI 深度分析</td></tr>
+        <tr><td class="py-2">周报导出</td><td class="text-center">—</td><td class="text-center">—</td><td class="text-center">✓</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if sub %}
+<script>
+document.getElementById('btn-unsub').addEventListener('click', async () => {
+  if (!confirm('确定取消订阅？')) return;
+  const resp = await fetch('/subscribe', { method: 'DELETE' });
+  if (resp.ok) {
+    location.href = '/subscribe';
+  } else {
+    alert('操作失败，请重试');
+  }
+});
+</script>
+{% endif %}
+{% endblock %}
