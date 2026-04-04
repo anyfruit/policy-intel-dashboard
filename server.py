@@ -122,6 +122,17 @@ def _query_items(
         conn.close()
 
 
+def _get_latest(limit: int = 10) -> list[dict]:
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM items ORDER BY date DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [_item_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def _get_regions() -> list[str]:
     conn = get_conn()
     try:
@@ -143,12 +154,16 @@ def _get_stats() -> dict:
         by_status = conn.execute(
             "SELECT status, COUNT(*) as cnt FROM items GROUP BY status"
         ).fetchall()
-        recent = conn.execute(
+        recent_30d = conn.execute(
             "SELECT COUNT(*) FROM items WHERE date >= date('now','-30 days')"
+        ).fetchone()[0]
+        recent_7d = conn.execute(
+            "SELECT COUNT(*) FROM items WHERE date >= date('now','-7 days')"
         ).fetchone()[0]
         return {
             "total": total,
-            "recent_30d": recent,
+            "recent_30d": recent_30d,
+            "recent_7d": recent_7d,
             "by_level": {r["level"]: r["cnt"] for r in by_level},
             "by_status": {r["status"]: r["cnt"] for r in by_status},
         }
@@ -178,6 +193,7 @@ async def index(
     items, total = _query_items(q, region, level, status, category, page, limit=20)
     regions = _get_regions()
     stats = _get_stats()
+    latest = _get_latest(10)
     total_pages = max(1, (total + 19) // 20)
 
     return templates.TemplateResponse("index.html", {
@@ -194,6 +210,7 @@ async def index(
         "category": category,
         "regions": regions,
         "stats": stats,
+        "latest": latest,
         "category_types": CATEGORY_TYPES,
         "levels": ["国家", "省", "市", "行业"],
         "statuses": ["现行", "征求意见", "废止"],
