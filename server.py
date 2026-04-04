@@ -65,7 +65,8 @@ def _parse_json_field(v) -> list:
     if isinstance(v, list):
         return v
     try:
-        return json.loads(v or "[]")
+        result = json.loads(v or "[]")
+        return result if isinstance(result, list) else []
     except Exception:
         return []
 

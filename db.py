@@ -108,6 +108,12 @@ def init_db() -> None:
         os.makedirs(data_dir, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         conn.executescript(_CREATE_SCHEMA)
+        # 迁移：补充旧数据库中可能缺失的 is_paid 列
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN is_paid INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass  # 列已存在，忽略
     print(f"[db] 初始化完成: {DB_PATH}")
 
 
