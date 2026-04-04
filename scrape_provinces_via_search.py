@@ -21,7 +21,7 @@ import time
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -32,6 +32,9 @@ from tags import extract_tags, infer_categories, extract_impact_on, infer_status
 
 BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+
+# 直辖市（source_name 用"市"而非"省"）
+MUNICIPALITIES = {"北京", "上海", "天津", "重庆"}
 
 HEADERS = {
     "User-Agent": (
@@ -184,11 +187,24 @@ def is_relevant_url(url: str) -> bool:
     return not any(e in url.lower() for e in exclude)
 
 
+def _domain_allowed(url: str) -> bool:
+    """检查 URL 域名是否在白名单内（支持子域名匹配）"""
+    try:
+        host = urlparse(url).netloc.lower().split(":")[0]
+        return any(host == d or host.endswith("." + d) for d in ACCESSIBLE_DOMAINS)
+    except Exception:
+        return False
+
+
 def process_province(province: str, queries: list[str], source_id: str,
                      dry_run: bool = False) -> int:
     print(f"\n🗺️  {province}（source_id={source_id}）")
     seen_urls = set()
     imported = 0
+    domain_filtered = 0
+
+    # 直辖市用"市"，其他用"省"
+    province_type = "市" if province in MUNICIPALITIES else "省"
 
     for query in queries:
         print(f"  🔍 搜索: {query[:60]}")
@@ -205,6 +221,11 @@ def process_province(province: str, queries: list[str], source_id: str,
             if not is_relevant_url(url):
                 continue
 
+            # 域名白名单硬过滤
+            if not _domain_allowed(url):
+                domain_filtered += 1
+                continue
+
             # 储能相关性快速过滤
             combined = (title + " " + snippet).lower()
             keywords = ["储能", "电化学", "bess", "锂电", "液流", "pcs", "bms"]
@@ -213,25 +234,34 @@ def process_province(province: str, queries: list[str], source_id: str,
 
             seen_urls.add(url)
 
-            # 计算 hash（避免重复入库）
-            url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
-
             # 提取日期
             pub_date = r.get("page_age") or extract_date_from_text(title + " " + snippet)
+
+            # 抓取全文正文
+            content = ""
+            try:
+                _, fetched_content = fetch_article(url)
+                if fetched_content:
+                    content = fetched_content
+            except Exception:
+                pass
+
+            # 用于分类/标签的文本（标题+摘要+正文前500字）
+            analyze_text = title + " " + snippet + " " + content[:500]
 
             # 构建 item
             item = {
                 "url": url,
                 "title": title[:500],
                 "summary": (snippet[:400] if snippet else ""),
+                "content": content,
                 "date": pub_date,
                 "source_id": source_id,
-                "source_name": f"{province}省政策（搜索来源）",
+                "source_name": f"{province}{province_type}政策（搜索来源）",
                 "region": province,
-                # db.upsert_* 会负责 json.dumps，这里传 list
-                "categories": infer_categories(title + " " + snippet),
-                "tags": extract_tags(title + " " + snippet),
-                "impact_on": extract_impact_on(title + " " + snippet),
+                "categories": infer_categories(analyze_text),
+                "tags": extract_tags(analyze_text),
+                "impact_on": extract_impact_on(analyze_text),
                 "level": infer_level(source_id, title),
                 "status": infer_status(title),
             }
@@ -247,6 +277,8 @@ def process_province(province: str, queries: list[str], source_id: str,
             else:
                 imported += 1
 
+    if domain_filtered:
+        print(f"  🚫 域名过滤: {domain_filtered} 条（不在白名单）")
     print(f"  📥 {province}: {'(dry-run) ' if dry_run else ''}导入 {imported} 条")
     return imported
 

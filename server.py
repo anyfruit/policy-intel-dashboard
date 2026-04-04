@@ -20,6 +20,7 @@ import auth
 import db
 from db import get_conn
 from tags import CATEGORY_TYPES
+from impact_score import calculate_impact_score, COMPANY_TYPES, BUSINESS_STAGES, PROVINCES_LIST
 
 app = FastAPI(title="储能电力政策库", docs_url=None, redoc_url=None)
 
@@ -173,13 +174,28 @@ async def index(
     level: str = "",
     status: str = "",
     category: str = "",
+    sort: str = "",
     page: int = 1,
     user=Depends(_get_user_with_plan),
 ):
-    items, total = _query_items(q, region, level, status, category, page, limit=20)
+    # "与我相关"排序：对付费用户用画像评分排序
+    if sort == "relevant" and user and user.get("is_paid"):
+        user_profile = _get_user_profile(user["id"])
+        # 取较大批量，评分后取前20*page条再分页
+        batch, _ = _query_items(q, region, level, status, category, page=1, limit=200)
+        for it in batch:
+            it["_score"] = calculate_impact_score(user_profile, it)["score"]
+        batch.sort(key=lambda x: x["_score"], reverse=True)
+        total = len(batch)
+        offset = (max(page, 1) - 1) * 20
+        items = batch[offset: offset + 20]
+        total_pages = max(1, (total + 19) // 20)
+    else:
+        items, total = _query_items(q, region, level, status, category, page, limit=20)
+        total_pages = max(1, (total + 19) // 20)
+
     regions = _get_regions()
     stats = _get_stats()
-    total_pages = max(1, (total + 19) // 20)
 
     return templates.TemplateResponse(request, "index.html", {
         "user": user,
@@ -192,6 +208,7 @@ async def index(
         "level": level,
         "status": status,
         "category": category,
+        "sort": sort,
         "regions": regions,
         "stats": stats,
         "category_types": CATEGORY_TYPES,
@@ -228,10 +245,17 @@ async def item_detail(
     finally:
         conn.close()
 
+    # 付费用户：预计算影响评分（可能无画像，返回空）
+    impact = None
+    if user and user.get("is_paid"):
+        user_profile = _get_user_profile(user["id"])
+        impact = calculate_impact_score(user_profile, item)
+
     return templates.TemplateResponse(request, "item.html", {
         "user": user,
         "item": item,
         "related": [dict(r) for r in related],
+        "impact": impact,
     })
 
 
@@ -302,6 +326,39 @@ async def logout():
     return resp
 
 
+def _get_user_profile(user_id: int) -> dict:
+    """获取用户画像，不存在返回空 dict。"""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT company_type, provinces, business_stage FROM user_profiles WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return {}
+        p = dict(row)
+        if isinstance(p.get("provinces"), str):
+            try:
+                p["provinces"] = json.loads(p["provinces"])
+            except Exception:
+                p["provinces"] = []
+        return p
+    finally:
+        conn.close()
+
+
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request, user=Depends(require_login)):
+    profile = _get_user_profile(user["id"])
+    return templates.TemplateResponse(request, "profile.html", {
+        "user": user,
+        "profile": profile,
+        "company_types": COMPANY_TYPES,
+        "business_stages": BUSINESS_STAGES,
+        "provinces_list": PROVINCES_LIST,
+    })
+
+
 # ── JSON API ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/items")
@@ -334,6 +391,49 @@ async def api_item(item_id: int):
 @app.get("/api/stats")
 async def api_stats():
     return _get_stats()
+
+
+@app.post("/api/profile")
+async def api_save_profile(request: Request, user=Depends(require_login)):
+    """保存/更新用户画像（登录即可用）。"""
+    body = await request.json()
+    company_type   = (body.get("company_type") or "").strip()
+    provinces      = body.get("provinces", [])
+    business_stage = (body.get("business_stage") or "全阶段").strip()
+
+    if not isinstance(provinces, list):
+        provinces = []
+    provinces_json = json.dumps(provinces, ensure_ascii=False)
+
+    conn = get_conn()
+    try:
+        conn.execute(
+            """INSERT OR REPLACE INTO user_profiles
+               (user_id, company_type, provinces, business_stage, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now','localtime'))""",
+            (user["id"], company_type, provinces_json, business_stage),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/items/{item_id}/impact")
+async def api_item_impact(item_id: int, user=Depends(require_paid)):
+    """返回该政策对当前用户的影响评分（付费功能）。"""
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404, "政策不存在")
+
+    policy       = _item_to_dict(row)
+    user_profile = _get_user_profile(user["id"])
+    result       = calculate_impact_score(user_profile, policy)
+    return result
 
 
 # ── AI 功能（付费）────────────────────────────────────────────────────────────

@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at        TEXT    DEFAULT (datetime('now','localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER UNIQUE NOT NULL,
+  company_type   TEXT    DEFAULT '',
+  provinces      TEXT    DEFAULT '[]',
+  business_stage TEXT    DEFAULT '全阶段',
+  updated_at     TEXT    DEFAULT (datetime('now','localtime'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_date     ON items(date);
 CREATE INDEX IF NOT EXISTS idx_items_region   ON items(region);
 CREATE INDEX IF NOT EXISTS idx_items_level    ON items(level);

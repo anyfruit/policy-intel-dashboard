@@ -25,6 +25,7 @@ from db import init_db, get_conn
 from scrape_in_en import MONTHLY_URLS, scrape_url
 from scrape_provinces_via_search import PROVINCE_QUERIES, process_province, BRAVE_API_KEY
 from cleanup_noise import is_noise
+from extract_deadlines import run as _run_deadline_extraction
 
 
 # ── 额外省份：目前搜索脚本里已有，但可补充 ────────────────────────────
@@ -87,6 +88,11 @@ def run_province_search(dry_run: bool = False) -> int:
     return total
 
 
+def run_deadline_extraction(dry_run: bool = False) -> None:
+    print(f"\n{'='*50}\n📅 [截止日期] 自动提取征求意见截止日期\n{'='*50}")
+    _run_deadline_extraction(all_items=False, dry_run=dry_run)
+
+
 def run_cleanup() -> int:
     print(f"\n{'='*50}\n🧹 [清理] 噪音过滤\n{'='*50}")
     conn = get_conn()
@@ -126,6 +132,7 @@ def main():
     ap.add_argument("--monthly", action="store_true")
     ap.add_argument("--search", action="store_true")
     ap.add_argument("--clean", action="store_true")
+    ap.add_argument("--deadlines", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -133,7 +140,7 @@ def main():
     start = datetime.now()
     print(f"\n🚀 auto_scrape 开始 {start.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    run_all = not (args.monthly or args.search or args.clean)
+    run_all = not (args.monthly or args.search or args.clean or args.deadlines)
 
     total_new = 0
     if run_all or args.monthly:
@@ -141,6 +148,9 @@ def main():
 
     if run_all or args.search:
         total_new += run_province_search(dry_run=args.dry_run)
+
+    if run_all or args.deadlines:
+        run_deadline_extraction(dry_run=args.dry_run)
 
     if (run_all or args.clean) and not args.dry_run:
         run_cleanup()

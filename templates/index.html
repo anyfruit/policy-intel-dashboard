@@ -156,15 +156,31 @@
     <main class="flex-1 min-w-0">
 
       <!-- 结果摘要 -->
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
         <p class="text-sm text-gray-500">
           共找到 <strong class="text-gray-900">{{ total }}</strong> 条政策
           {% if q %}，关键词：<span class="text-blue-600">{{ q }}</span>{% endif %}
           {% if region %}，地区：<span class="text-blue-600">{{ region }}</span>{% endif %}
           {% if level %}，层级：<span class="text-blue-600">{{ level }}级</span>{% endif %}
           {% if status %}，状态：<span class="text-blue-600">{{ status }}</span>{% endif %}
+          {% if sort == 'relevant' %}<span class="text-indigo-600 font-medium">· 按相关度排序</span>{% endif %}
         </p>
-        <span class="text-xs text-gray-400">第 {{ page }}/{{ total_pages }} 页</span>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-400">第 {{ page }}/{{ total_pages }} 页</span>
+          {% if user and user.is_paid %}
+          {% if sort == 'relevant' %}
+          <a href="?q={{ q }}&region={{ region }}&level={{ level }}&status={{ status }}&category={{ category }}"
+             class="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-medium">
+            与我相关 ✓
+          </a>
+          {% else %}
+          <a href="?q={{ q }}&region={{ region }}&level={{ level }}&status={{ status }}&category={{ category }}&sort=relevant"
+             class="text-xs bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-3 py-1.5 rounded-lg font-medium transition-colors">
+            按相关度排序
+          </a>
+          {% endif %}
+          {% endif %}
+        </div>
       </div>
 
       <!-- 政策列表 -->
