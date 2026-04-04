@@ -13,7 +13,23 @@ import os
 import sqlite3
 from typing import Optional
 
-DB_PATH = os.getenv("DB_PATH", "/data/policy.db")
+def _resolve_db_path() -> str:
+    path = os.getenv("DB_PATH", "/data/policy.db")
+    data_dir = os.path.dirname(path)
+    if data_dir:
+        try:
+            os.makedirs(data_dir, exist_ok=True)
+            test = os.path.join(data_dir, ".write_test")
+            with open(test, "w") as f:
+                f.write("x")
+            os.remove(test)
+        except (OSError, PermissionError):
+            fallback = "/tmp/policy.db"
+            print(f"[db] {data_dir} not writable, falling back to {fallback}", flush=True)
+            return fallback
+    return path
+
+DB_PATH = _resolve_db_path()
 
 _CREATE_SCHEMA = """
 PRAGMA journal_mode=WAL;
