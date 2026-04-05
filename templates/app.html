@@ -1191,7 +1191,7 @@ function SourceBarChart({sources}) {
   const [tip,setTip] = useState(null);
   const top = [...(sources||[])].sort((a,b)=>(b.item_count||0)-(a.item_count||0)).slice(0,8);
   const max = Math.max(1, ...top.map(s=>s.item_count||0));
-  const w=380,h=180, padL=110, padR=52, rowH=18, gap=10, y0=20;
+  const w=380,h=300, padL=110, padR=52, rowH=26, gap=10, y0=20;
   const barW = w - padL - padR;
 
   return (
@@ -1293,14 +1293,14 @@ function ChinaHeatMap({counts}) {
   const maxV = Math.max(1, ...Object.values(counts||{}).map(Number).filter(v => isFinite(v) && v > 0));
 
   function heatColor(v) {
-    if (!v) return {fill:"#e8f4fd", stroke:"#c8dff0", txt:"#94a3b8"};
+    if (!v) return {fill:"#f0f9ff", stroke:"#bae6fd", txt:"#94a3b8"};
     const t = v / maxV;
-    const r = 255, g = Math.round(255*(1-t*0.82)), b = Math.round(240*(1-t));
-    const alpha = 0.25 + t * 0.65;
+    const r = Math.round(239 - t*209), g = Math.round(246 - t*188), b = 255;
+    const alpha = 0.4 + t * 0.6;
     return {
       fill: `rgba(${r},${g},${b},${alpha})`,
-      stroke: `rgba(220,38,38,${0.2+t*0.6})`,
-      txt: t > 0.55 ? "#fff" : "#334155",
+      stroke: `rgba(37,99,235,${0.3+t*0.7})`,
+      txt: t > 0.55 ? "#fff" : "#1e40af",
     };
   }
 
@@ -1371,9 +1371,9 @@ function ChinaHeatMap({counts}) {
           <g transform={`translate(8,${VH-42})`}>
             <text y="0" style={{fontSize:9,fill:"#475569"}}>政策密度</text>
             {[0,0.25,0.5,0.75,1].map((t,i) => {
-              const r=255,g=Math.round(255*(1-t*0.82)),b=Math.round(240*(1-t)),a=0.25+t*0.65;
+              const r=Math.round(239-t*209),g=Math.round(246-t*188),b=255,a=0.4+t*0.6;
               return <rect key={i} x={i*26} y="5" width="24" height="10" rx="2"
-                fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(220,38,38,${0.2+t*0.6})`} strokeWidth="1"/>;
+                fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(37,99,235,${0.3+t*0.7})`} strokeWidth="1"/>;
             })}
             <text x="0" y="26" style={{fontSize:8,fill:"#64748b"}}>少</text>
             <text x="110" y="26" style={{fontSize:8,fill:"#64748b"}}>多</text>
@@ -1400,7 +1400,7 @@ function ChinaHeatMap({counts}) {
           })}
           <g transform="translate(10,458)">
             <text y="0" style={{fontSize:9,fill:"#94a3b8"}}>政策密度</text>
-            {[0,0.25,0.5,0.75,1].map((t,i)=>{const r=255,g=Math.round(255*(1-t*0.82)),b=Math.round(240*(1-t)),a=0.25+t*0.65;return <rect key={i} x={i*26} y="5" width="24" height="10" rx="2" fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(220,38,38,${0.2+t*0.6})`} strokeWidth="1"/>;})}</g>
+            {[0,0.25,0.5,0.75,1].map((t,i)=>{const r=Math.round(239-t*209),g=Math.round(246-t*188),b=255,a=0.4+t*0.6;return <rect key={i} x={i*26} y="5" width="24" height="10" rx="2" fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(37,99,235,${0.3+t*0.7})`} strokeWidth="1"/>;})}</g>
         </svg>
       )}
 
