@@ -313,6 +313,30 @@
     .version-label { font-size:12px; font-weight:600; color:#334155; }
     .version-time { font-size:11px; color:#94a3b8; }
 
+    /* Policy Lifecycle Timeline */
+    .ptl-wrap { margin-top:16px; }
+    .ptl-title { font-weight:700; font-size:12px; color:#475569; margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+    .ptl-axis { display:flex; flex-direction:column; gap:0; position:relative; padding-left:28px; }
+    .ptl-axis::before { content:''; position:absolute; left:8px; top:8px; bottom:8px; width:2px; background:linear-gradient(180deg,#6366f1,#2563eb,#0ea5e9); border-radius:2px; }
+    .ptl-event { display:flex; align-items:flex-start; gap:10px; padding:6px 0; position:relative; }
+    .ptl-dot { width:18px; height:18px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 0 2px var(--primary); flex-shrink:0; margin-top:1px; z-index:1; position:absolute; left:-28px; }
+    .ptl-dot.stage-征求意见 { background:#f59e0b; box-shadow:0 0 0 2px #f59e0b; }
+    .ptl-dot.stage-正式发布 { background:#16a34a; box-shadow:0 0 0 2px #16a34a; }
+    .ptl-dot.stage-修订 { background:#2563eb; box-shadow:0 0 0 2px #2563eb; }
+    .ptl-dot.stage-废止 { background:#ef4444; box-shadow:0 0 0 2px #ef4444; }
+    .ptl-content { flex:1; min-width:0; }
+    .ptl-stage-badge { display:inline-block; font-size:10px; font-weight:700; padding:1px 7px; border-radius:99px; margin-bottom:2px; }
+    .ptl-stage-badge.stage-征求意见 { background:#fef3c7; color:#92400e; }
+    .ptl-stage-badge.stage-正式发布 { background:#dcfce7; color:#166534; }
+    .ptl-stage-badge.stage-修订 { background:#dbeafe; color:#1e40af; }
+    .ptl-stage-badge.stage-废止 { background:#fee2e2; color:#991b1b; }
+    .ptl-event-title { font-size:12px; color:#0f172a; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+    .ptl-event-title a { color:inherit; text-decoration:none; }
+    .ptl-event-title a:hover { text-decoration:underline; color:var(--primary); }
+    .ptl-event-date { font-size:11px; color:#94a3b8; margin-top:1px; }
+    .ptl-event.is-current .ptl-event-title { color:var(--primary); }
+    .ptl-event.is-current { background:rgba(99,102,241,.04); border-radius:8px; padding:5px 6px; margin-left:-6px; }
+
     /* Search & List */
     .search-row { display:flex; gap:8px; margin-bottom:12px; }
     .search-row input { flex:1; height:36px; font-size:13px; }
@@ -1841,6 +1865,10 @@ function ItemModal({item,onClose,isLoggedIn,onAddToCompare,isInCompare}) {
   const [diffData,setDiffData]         = useState(null);   // null=未加载
   const [loadDiff,setLoadDiff]         = useState(false);
 
+  // ── 政策生命周期时间线 ──
+  const [timeline,setTimeline]         = useState(null);   // {group, events}
+  const [timelineLoad,setTlLoad]       = useState(false);
+
   // ── 解读状态 ──
   const [analysis,setAnalysis]         = useState(null);   // 已有解读数据
   const [analysisLoading,setALoading]  = useState(false);
@@ -1852,6 +1880,7 @@ function ItemModal({item,onClose,isLoggedIn,onAddToCompare,isInCompare}) {
     setVersions(null);
     setAnalysis(null); setAError(null); setNoKeyMsg(null);
     setShowDiff(false); setDiffData(null);
+    setTimeline(null);
 
     if(isLoggedIn && (item.version_count||0) > 0) {
       setLoadVer(true);
@@ -1867,6 +1896,14 @@ function ItemModal({item,onClose,isLoggedIn,onAddToCompare,isInCompare}) {
         .then(d=>{ if(d.has) setAnalysis(d); })
         .catch(()=>{});
     }
+
+    // 加载政策生命周期时间线
+    setTlLoad(true);
+    fetch(`/api/items/${item.id}/timeline`)
+      .then(r=>r.json())
+      .then(d=>{ if(d.events && d.events.length>=2) setTimeline(d); })
+      .catch(()=>{})
+      .finally(()=>setTlLoad(false));
   },[item,isLoggedIn]);
 
   function toggleDiff() {
@@ -2093,6 +2130,44 @@ function ItemModal({item,onClose,isLoggedIn,onAddToCompare,isInCompare}) {
         )}
 
 
+
+        {/* ── 政策生命周期时间线 ── */}
+        {(timelineLoad || timeline) && (
+          <div className="ptl-wrap">
+            <div className="ptl-title">
+              <span>🔁 政策生命周期</span>
+              {timeline?.group?.name && (
+                <span style={{fontWeight:400,color:"#94a3b8",fontSize:11,marginLeft:4}}>
+                  · {timeline.group.name}
+                </span>
+              )}
+            </div>
+            {timelineLoad ? (
+              <div style={{fontSize:12,color:"#94a3b8"}}>加载中…</div>
+            ) : timeline?.events?.length > 0 ? (
+              <div className="ptl-axis">
+                {timeline.events.map((ev,i)=>{
+                  const stageClass = `stage-${ev.stage}`;
+                  return (
+                    <div key={ev.id} className={`ptl-event${ev.is_current?" is-current":""}`}>
+                      <div className={`ptl-dot ${stageClass}`}/>
+                      <div className="ptl-content">
+                        <span className={`ptl-stage-badge ${stageClass}`}>{ev.stage}</span>
+                        <div className="ptl-event-title">
+                          {ev.url
+                            ? <a href={ev.url} target="_blank" rel="noopener">{ev.title}</a>
+                            : ev.title}
+                          {ev.is_current && <span style={{fontSize:10,color:"#6366f1",marginLeft:5}}>(当前)</span>}
+                        </div>
+                        <div className="ptl-event-date">{ev.event_date||"—"}{ev.source_name?` · ${ev.source_name}`:""}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {/* ── AI 政策解读 ── */}
         {isLoggedIn && (

@@ -122,12 +122,31 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   updated_at     TEXT    DEFAULT (datetime('now','localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS policy_groups (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT    NOT NULL,
+  region     TEXT,
+  created_at TEXT    DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS policy_timeline (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  policy_group_id INTEGER NOT NULL,
+  item_id         INTEGER NOT NULL,
+  stage           TEXT    NOT NULL,
+  event_date      TEXT,
+  notes           TEXT,
+  UNIQUE(policy_group_id, item_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_date     ON items(date);
 CREATE INDEX IF NOT EXISTS idx_items_region   ON items(region);
 CREATE INDEX IF NOT EXISTS idx_items_level    ON items(level);
 CREATE INDEX IF NOT EXISTS idx_items_status   ON items(status);
 CREATE INDEX IF NOT EXISTS idx_items_source   ON items(source_id);
 CREATE INDEX IF NOT EXISTS idx_items_updated  ON items(updated_at);
+CREATE INDEX IF NOT EXISTS idx_timeline_group ON policy_timeline(policy_group_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_item  ON policy_timeline(item_id);
 """
 
 

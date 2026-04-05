@@ -392,6 +392,14 @@ async def startup():
     auth.init_users_table()
     _seed_from_backup()
 
+    # 构建政策时间线关联
+    try:
+        n = _build_timeline_links()
+        if n > 0:
+            logger.info("🕐 政策时间线：新建 %d 个政策组", n)
+    except Exception:
+        logger.exception("政策时间线构建失败（不影响启动）")
+
     # 启动后台定时爬虫线程（daemon=True：主进程退出时自动结束）
     t = threading.Thread(target=_run_daily_scrape, name="daily-scraper", daemon=True)
     t.start()
@@ -971,6 +979,163 @@ async def api_compare_provinces(provinces: str = "", category: str = "", user=De
                 "latest_3": latest,
             })
         return {"provinces": result}
+    finally:
+        conn.close()
+
+
+# ── Policy Timeline ────────────────────────────────────────────────────────────
+
+import re as _re
+
+_STAGE_KEYWORDS = {
+    "废止": ["废止", "撤销", "失效"],
+    "修订": ["修订", "修正", "修改"],
+    "征求意见": ["征求意见", "意见稿", "公开征求"],
+}
+
+_NOISE_PATTERNS = [
+    "征求意见稿", "征求意见", "意见稿", "公开征求", "修订", "修正", "修改", "废止", "撤销", "失效",
+    r"\(.*?\)", r"（.*?）", r"【.*?】", r"\[.*?\]",
+]
+
+
+def _detect_stage(title: str) -> str:
+    for stage, kws in _STAGE_KEYWORDS.items():
+        if any(kw in title for kw in kws):
+            return stage
+    return "正式发布"
+
+
+def _normalize_title(title: str) -> str:
+    """去掉阶段词和括号内容，保留核心政策名称。"""
+    t = title
+    for pat in _NOISE_PATTERNS:
+        t = _re.sub(pat, "", t)
+    t = _re.sub(r"\s+", "", t).strip()
+    return t
+
+
+def _build_timeline_links() -> int:
+    """扫描 items 表，找标题相似的政策，建立 policy_group + policy_timeline 记录。
+    返回新建的 group 数量。"""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, date, region FROM items WHERE title IS NOT NULL ORDER BY date ASC"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # 按 normalized_title 分组
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        norm = _normalize_title(row["title"] or "")
+        if len(norm) < 6:
+            continue
+        groups.setdefault(norm, []).append({
+            "id": row["id"],
+            "title": row["title"],
+            "date": row["date"],
+            "region": row["region"],
+            "stage": _detect_stage(row["title"] or ""),
+        })
+
+    # 只保留有2条以上的组（真正有时间线意义）
+    multi = {k: v for k, v in groups.items() if len(v) >= 2}
+
+    conn = get_conn()
+    new_groups = 0
+    try:
+        for norm_name, items_in_group in multi.items():
+            region = items_in_group[0].get("region") or ""
+            # 检查是否已存在相同名称的 group
+            existing = conn.execute(
+                "SELECT id FROM policy_groups WHERE name=?", (norm_name,)
+            ).fetchone()
+            if existing:
+                group_id = existing["id"]
+            else:
+                cur = conn.execute(
+                    "INSERT INTO policy_groups (name, region) VALUES (?,?)",
+                    (norm_name, region),
+                )
+                group_id = cur.lastrowid
+                new_groups += 1
+
+            for it in items_in_group:
+                try:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO policy_timeline (policy_group_id, item_id, stage, event_date) VALUES (?,?,?,?)",
+                        (group_id, it["id"], it["stage"], it["date"]),
+                    )
+                except Exception:
+                    pass
+        conn.commit()
+    finally:
+        conn.close()
+
+    return new_groups
+
+
+@app.get("/api/items/{item_id}/timeline")
+async def api_item_timeline(item_id: int):
+    """返回该政策所在 group 的完整时间线。"""
+    conn = get_conn()
+    try:
+        tl_row = conn.execute(
+            "SELECT policy_group_id FROM policy_timeline WHERE item_id=?", (item_id,)
+        ).fetchone()
+        if not tl_row:
+            return {"group": None, "events": []}
+        group_id = tl_row["policy_group_id"]
+        group = conn.execute(
+            "SELECT id, name, region FROM policy_groups WHERE id=?", (group_id,)
+        ).fetchone()
+        events_rows = conn.execute(
+            """SELECT pt.id, pt.item_id, pt.stage, pt.event_date, pt.notes,
+                      i.title, i.url, i.source_name
+               FROM policy_timeline pt
+               JOIN items i ON i.id = pt.item_id
+               WHERE pt.policy_group_id=?
+               ORDER BY pt.event_date ASC, pt.id ASC""",
+            (group_id,),
+        ).fetchall()
+        events = [
+            {
+                "id": r["id"],
+                "item_id": r["item_id"],
+                "stage": r["stage"],
+                "event_date": r["event_date"],
+                "notes": r["notes"],
+                "title": r["title"],
+                "url": r["url"],
+                "source_name": r["source_name"],
+                "is_current": r["item_id"] == item_id,
+            }
+            for r in events_rows
+        ]
+        return {"group": dict(group) if group else None, "events": events}
+    finally:
+        conn.close()
+
+
+@app.get("/api/timeline/groups")
+async def api_timeline_groups(page: int = 1, limit: int = 20):
+    """返回有时间线的政策组列表。"""
+    limit = min(limit, 100)
+    offset = (max(page, 1) - 1) * limit
+    conn = get_conn()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM policy_groups").fetchone()[0]
+        rows = conn.execute(
+            "SELECT pg.id, pg.name, pg.region, COUNT(pt.id) as event_count FROM policy_groups pg LEFT JOIN policy_timeline pt ON pt.policy_group_id=pg.id GROUP BY pg.id ORDER BY event_count DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        groups = [
+            {"id": r["id"], "name": r["name"], "region": r["region"], "event_count": r["event_count"]}
+            for r in rows
+        ]
+        return {"groups": groups, "total": total, "page": page}
     finally:
         conn.close()
 
