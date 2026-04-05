@@ -739,7 +739,7 @@ async def api_item_analysis(item_id: int, mode: str = "standard", force: bool = 
     return {
         "item_id": item_id,
         "title": item.get("title", ""),
-        "core_content": "政策解读功能需要 ANTHROPIC_API_KEY。",
+        "core_content": "政策解读功能需要 OPENAI_API_KEY。",
         "key_requirements": [],
         "impact_analysis": {"developers": "", "manufacturers": "", "grid": ""},
         "action_items": [],
@@ -1054,15 +1054,15 @@ async def api_item_impact(item_id: int, user=Depends(require_paid)):
 
 # ── AI API（付费）────────────────────────────────────────────────────────────
 
-def _get_anthropic_client():
+def _get_openai_client():
     try:
-        import anthropic
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        from openai import OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise HTTPException(503, "AI 服务未配置（ANTHROPIC_API_KEY 未设置）")
-        return anthropic.Anthropic(api_key=api_key)
+            raise HTTPException(503, "AI 服务未配置（OPENAI_API_KEY 未设置）")
+        return OpenAI(api_key=api_key)
     except ImportError:
-        raise HTTPException(503, "AI 依赖未安装")
+        raise HTTPException(503, "AI 依赖未安装（openai）")
 
 
 @app.post("/api/ai/search")
@@ -1100,14 +1100,14 @@ async def ai_search(request: Request, user=Depends(require_paid)):
         for i, r in enumerate(candidate_items[:40])
     ])
 
-    client = _get_anthropic_client()
-    import anthropic
+    client = _get_openai_client()
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         max_tokens=2000,
-        system="你是中国储能电力政策专家助手。请严格按 JSON 格式回复，不要添加任何其他内容。",
-        messages=[{"role": "user", "content": f"""用户查询："{query}"
+        messages=[
+            {"role": "system", "content": "你是中国储能电力政策专家助手。请严格按 JSON 格式回复，不要添加任何其他内容。"},
+            {"role": "user", "content": f"""用户查询："{query}"
 
 以下是数据库中的政策条目：
 {items_text}
@@ -1119,10 +1119,11 @@ async def ai_search(request: Request, user=Depends(require_paid)):
     {{"number": 1, "relevance": "高/中/低", "key_point": "与查询的关联要点（1句话）"}}
   ]
 }}
-最多返回 10 条，按相关度从高到低排列。只返回 JSON。"""}],
+最多返回 10 条，按相关度从高到低排列。只返回 JSON。"""},
+        ],
     )
 
-    ai_text = response.content[0].text.strip()
+    ai_text = response.choices[0].message.content.strip()
     if "```" in ai_text:
         import re
         m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", ai_text, re.DOTALL)
@@ -1172,12 +1173,13 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
 摘要：{item.get('summary') or '（无摘要）'}
 {('正文：' + (item.get('content') or '')[:3000]) if item.get('content') else ''}"""
 
-    client = _get_anthropic_client()
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
+    client = _get_openai_client()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         max_tokens=2000,
-        system="你是中国储能电力政策专家。请用简洁、专业的中文解读政策，严格按 JSON 格式回复。",
-        messages=[{"role": "user", "content": f"""请解读以下政策文件：
+        messages=[
+            {"role": "system", "content": "你是中国储能电力政策专家。请用简洁、专业的中文解读政策，严格按 JSON 格式回复。"},
+            {"role": "user", "content": f"""请解读以下政策文件：
 
 {content_text}
 
@@ -1194,10 +1196,11 @@ async def ai_interpret(item_id: int, user=Depends(require_paid)):
   "timeline": "重要时间节点（如有，否则填无）",
   "overall_assessment": "总体评价及政策走向判断（1-2句话）"
 }}
-只返回 JSON。"""}],
+只返回 JSON。"""},
+        ],
     )
 
-    ai_text = response.content[0].text.strip()
+    ai_text = response.choices[0].message.content.strip()
     if "```" in ai_text:
         import re
         m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", ai_text, re.DOTALL)

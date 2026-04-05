@@ -3107,7 +3107,7 @@ function SubscriptionsView({smtpConfigured}) {
   );
 }
 
-// ── SearchView（问政策 · FTS5 全文检索）──────────────────────
+// ── SearchView（问政策 · FTS5 全文检索 + AI 模式）──────────────────────
 function SearchView() {
   const [q,setQ]             = useState("");
   const [inputQ,setInputQ]   = useState("");
@@ -3115,14 +3115,22 @@ function SearchView() {
   const [loading,setLoading] = useState(false);
   const [limit,setLimit]     = useState(20);
   const [selItem,setSelItem] = useState(null);
+  const [aiMode,setAiMode]   = useState(false);
 
   async function doSearch(query) {
     if(!query.trim()) return;
     setLoading(true); setResults(null);
     try {
-      const r = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,{credentials:"include"});
-      const d = await r.json();
-      setResults(d);
+      if(aiMode) {
+        const r = await fetch('/api/ai/search',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({query})});
+        const d = await r.json();
+        if(!r.ok) { setResults({error:d.detail||'AI 检索失败',items:[],total:0,ai:true}); return; }
+        setResults({...d, ai:true});
+      } else {
+        const r = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,{credentials:"include"});
+        const d = await r.json();
+        setResults(d);
+      }
     } catch(e) { setResults({error:e.message,items:[],total:0}); }
     finally { setLoading(false); }
   }
@@ -3134,19 +3142,31 @@ function SearchView() {
   return (
     <div className="fts-wrap">
       <div className="fts-hero">
-        <div className="fts-hero-title">🔍 问政策 · 全文检索</div>
-        <div className="fts-hero-sub">基于 SQLite FTS5 · 秒级搜索 title / 摘要 / 正文全文 · 0 成本</div>
-        <form onSubmit={submit} className="fts-search-row">
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div className="fts-hero-title">{aiMode?"🤖 问政策 · AI 智能检索":"🔍 问政策 · 全文检索"}</div>
+            <div className="fts-hero-sub">{aiMode?"GPT-4o-mini 语义理解 · 付费功能":"基于 SQLite FTS5 · 秒级搜索 title / 摘要 / 正文全文 · 0 成本"}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.12)",borderRadius:20,padding:"4px 12px",cursor:"pointer",userSelect:"none"}}
+            onClick={()=>{setAiMode(m=>!m);setResults(null);}}>
+            <span style={{fontSize:12,color:"#e2e8f0"}}>FTS</span>
+            <div style={{width:32,height:18,borderRadius:9,background:aiMode?"#6366f1":"#64748b",position:"relative",transition:"background .2s"}}>
+              <div style={{position:"absolute",top:2,left:aiMode?14:2,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+            </div>
+            <span style={{fontSize:12,color:"#e2e8f0"}}>AI</span>
+          </div>
+        </div>
+        <form onSubmit={submit} className="fts-search-row" style={{marginTop:12}}>
           <input
             className="fts-input"
             type="text"
             autoFocus
-            placeholder="输入关键词，如：补贴申报、消防验收、并网检测…"
+            placeholder={aiMode?"用自然语言提问，如：有哪些针对独立储能的补贴政策？":"输入关键词，如：补贴申报、消防验收、并网检测…"}
             value={inputQ}
             onChange={e=>setInputQ(e.target.value)}
           />
           <button type="submit" className="fts-btn" disabled={loading||!inputQ.trim()}>
-            {loading?"搜索中…":"搜索"}
+            {loading?"搜索中…":aiMode?"AI 搜索":"搜索"}
           </button>
         </form>
         <div className="fts-hint">
@@ -3160,9 +3180,34 @@ function SearchView() {
       </div>
 
       {/* 结果 */}
-      {loading && <div className="loading"><div className="spinner"/>全文检索中…</div>}
+      {loading && <div className="loading"><div className="spinner"/>{aiMode?"AI 检索中…":"全文检索中…"}</div>}
 
-      {results && !loading && (
+      {/* AI 模式结果 */}
+      {results && results.ai && !loading && (
+        <>
+          {results.error && <div style={{color:"#dc2626",fontSize:12,marginBottom:12}}>⚠️ {results.error}</div>}
+          {results.summary && <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#1e40af"}}>{results.summary}</div>}
+          {(results.items||[]).length===0 && !results.error && <div className="empty"><div className="empty-icon">🤖</div><div>未找到相关政策</div></div>}
+          <div>
+            {(results.items||[]).map(item=>(
+              <div key={item.id} className="fts-result-item" onClick={()=>setSelItem(item)}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                  <div className="fts-result-title" style={{flex:1}}>{item.title}</div>
+                  {item.ai_relevance&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:item.ai_relevance==="高"?"#dcfce7":item.ai_relevance==="中"?"#fef9c3":"#f1f5f9",color:item.ai_relevance==="高"?"#15803d":item.ai_relevance==="中"?"#854d0e":"#64748b",whiteSpace:"nowrap"}}>{item.ai_relevance}</span>}
+                </div>
+                {item.ai_key_point&&<div style={{fontSize:12,color:"#6366f1",marginTop:4}}>{item.ai_key_point}</div>}
+                <div className="fts-result-meta">
+                  {item.region&&<span className="badge badge-region">{item.region}</span>}
+                  {item.date&&<span className="badge badge-level">{item.date.slice(0,10)}</span>}
+                  {item.level&&<span className="badge">{item.level}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {results && !results.ai && !loading && (
         <>
           <div className="result-bar" style={{marginBottom:10}}>
             <span>「{results.q}」共找到 <strong>{results.total}</strong> 条</span>
@@ -3210,9 +3255,9 @@ function SearchView() {
 
       {!results && !loading && (
         <div style={{textAlign:"center",padding:"40px 0",color:"#94a3b8"}}>
-          <div style={{fontSize:36,marginBottom:10}}>🔍</div>
-          <div style={{fontSize:13}}>输入关键词开始全文搜索</div>
-          <div style={{fontSize:11,marginTop:6}}>支持中文短语 · 覆盖政策全文内容（含正文存档）</div>
+          <div style={{fontSize:36,marginBottom:10}}>{aiMode?"🤖":"🔍"}</div>
+          <div style={{fontSize:13}}>{aiMode?"用自然语言提问，AI 将为您检索最相关的政策":"输入关键词开始全文搜索"}</div>
+          <div style={{fontSize:11,marginTop:6}}>{aiMode?"AI 模式为付费功能 · 使用 GPT-4o-mini · 语义理解":"支持中文短语 · 覆盖政策全文内容（含正文存档）"}</div>
         </div>
       )}
 
