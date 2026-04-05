@@ -2930,8 +2930,9 @@ function SubscriptionsView({smtpConfigured}) {
   );
 }
 
-// ── SearchView（问政策 · FTS5 全文检索）──────────────────────
-function SearchView() {
+// ── SearchView（问政策 · 关键词检索 + AI 智能检索）──────────────────────
+function SearchView({userInfo}) {
+  const [mode,setMode]       = useState("keyword"); // "keyword" | "ai"
   const [q,setQ]             = useState("");
   const [inputQ,setInputQ]   = useState("");
   const [results,setResults] = useState(null);
@@ -2939,81 +2940,151 @@ function SearchView() {
   const [limit,setLimit]     = useState(20);
   const [selItem,setSelItem] = useState(null);
 
-  async function doSearch(query) {
+  const isPaid = userInfo?.is_paid;
+
+  async function doSearch(query, searchMode) {
     if(!query.trim()) return;
+    const m = searchMode !== undefined ? searchMode : mode;
     setLoading(true); setResults(null);
     try {
-      const r = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,{credentials:"include"});
-      const d = await r.json();
-      setResults(d);
+      if(m === "ai") {
+        const r = await fetch("/api/ai/search", {
+          method:"POST", credentials:"include",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({query}),
+        });
+        const d = await r.json();
+        if(!r.ok) { setResults({error:d.detail||"请求失败",items:[],total:0,mode:"ai"}); return; }
+        setResults({...d, mode:"ai"});
+      } else {
+        const r = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,{credentials:"include"});
+        const d = await r.json();
+        setResults({...d, mode:"keyword"});
+      }
     } catch(e) { setResults({error:e.message,items:[],total:0}); }
     finally { setLoading(false); }
   }
 
   function submit(e) { e.preventDefault(); const q2=inputQ.trim(); if(q2){setQ(q2);doSearch(q2);} }
+  function switchMode(m) { setMode(m); setResults(null); }
 
   const EXAMPLES = ["储能补贴","并网测试要求","BESS消防标准","试点项目申报","电化学储能安全"];
 
   return (
     <div className="fts-wrap">
       <div className="fts-hero">
-        <div className="fts-hero-title">🔍 问政策 · 全文检索</div>
-        <div className="fts-hero-sub">基于 SQLite FTS5 · 秒级搜索 title / 摘要 / 正文全文 · 0 成本</div>
+        <div className="fts-hero-title">🔍 问政策</div>
+        {/* 模式切换 */}
+        <div style={{display:"flex",gap:8,marginBottom:14,justifyContent:"center"}}>
+          <button
+            style={{fontSize:12,padding:"5px 16px",borderRadius:6,border:"1px solid",cursor:"pointer",
+              background:mode==="keyword"?"#4f46e5":"transparent",
+              color:mode==="keyword"?"#fff":"#64748b",
+              borderColor:mode==="keyword"?"#4f46e5":"#cbd5e1"}}
+            onClick={()=>switchMode("keyword")}>
+            📝 关键词检索
+          </button>
+          <button
+            style={{fontSize:12,padding:"5px 16px",borderRadius:6,border:"1px solid",cursor:"pointer",
+              background:mode==="ai"?"#4f46e5":"transparent",
+              color:mode==="ai"?"#fff":"#64748b",
+              borderColor:mode==="ai"?"#4f46e5":"#cbd5e1"}}
+            onClick={()=>switchMode("ai")}>
+            🤖 AI 智能检索{!isPaid&&" 🔒"}
+          </button>
+        </div>
+        {mode==="keyword"&&<div className="fts-hero-sub">基于 SQLite FTS5 · 秒级搜索 title / 摘要 / 正文全文 · 0 成本</div>}
+        {mode==="ai"&&<div className="fts-hero-sub">{isPaid?"输入自然语言查询，Claude AI 语义理解 + 相关度排序":"AI 智能检索仅限付费用户"}</div>}
         <form onSubmit={submit} className="fts-search-row">
           <input
             className="fts-input"
             type="text"
             autoFocus
-            placeholder="输入关键词，如：补贴申报、消防验收、并网检测…"
+            placeholder={mode==="ai"
+              ?"用自然语言描述，如：2025年江苏储能补贴政策有哪些变化？"
+              :"输入关键词，如：补贴申报、消防验收、并网检测…"}
             value={inputQ}
             onChange={e=>setInputQ(e.target.value)}
           />
-          <button type="submit" className="fts-btn" disabled={loading||!inputQ.trim()}>
+          <button type="submit" className="fts-btn" disabled={loading||!inputQ.trim()||(mode==="ai"&&!isPaid)}>
             {loading?"搜索中…":"搜索"}
           </button>
         </form>
-        <div className="fts-hint">
-          示例：{EXAMPLES.map(ex=>(
-            <span key={ex} style={{cursor:"pointer",marginRight:10,textDecoration:"underline dotted",opacity:.8}}
-              onClick={()=>{setInputQ(ex);setQ(ex);doSearch(ex);}}>
-              {ex}
-            </span>
-          ))}
-        </div>
+        {mode==="ai"&&!isPaid&&(
+          <div style={{color:"#ef4444",fontSize:12,marginTop:8,textAlign:"center"}}>
+            ⚠️ AI 智能检索需要付费订阅，请联系管理员升级
+          </div>
+        )}
+        {mode==="keyword"&&(
+          <div className="fts-hint">
+            示例：{EXAMPLES.map(ex=>(
+              <span key={ex} style={{cursor:"pointer",marginRight:10,textDecoration:"underline dotted",opacity:.8}}
+                onClick={()=>{setInputQ(ex);setQ(ex);doSearch(ex,"keyword");}}>
+                {ex}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 结果 */}
-      {loading && <div className="loading"><div className="spinner"/>全文检索中…</div>}
+      {loading && <div className="loading"><div className="spinner"/>{mode==="ai"?"AI 分析中，请稍候…":"全文检索中…"}</div>}
 
       {results && !loading && (
         <>
-          <div className="result-bar" style={{marginBottom:10}}>
-            <span>「{results.q}」共找到 <strong>{results.total}</strong> 条</span>
-            <div style={{display:"flex",gap:8,alignItems:"center"}}>
-              <span style={{fontSize:11,color:"#94a3b8"}}>最多显示</span>
-              <select value={limit} onChange={e=>{setLimit(Number(e.target.value));doSearch(q);}} style={{width:70,padding:"3px 6px",fontSize:12}}>
-                {[10,20,50,100].map(n=><option key={n} value={n}>{n}</option>)}
-              </select>
-            </div>
-          </div>
-
           {results.error && <div style={{color:"#dc2626",fontSize:12,marginBottom:12}}>⚠️ {results.error}</div>}
 
-          {results.items.length===0 && !results.error && (
-            <div className="empty"><div className="empty-icon">🔎</div><div>未找到匹配结果</div>
-              <div style={{fontSize:12,marginTop:8,color:"#94a3b8"}}>
-                💡 提示：尝试更短的关键词，或运行 <code>python rebuild_fts.py</code> 重建索引
+          {/* AI 模式：摘要卡片 */}
+          {results.mode==="ai"&&results.summary&&(
+            <div style={{background:"linear-gradient(135deg,#eff6ff,#e0f2fe)",border:"1px solid #bfdbfe",borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#1e40af",marginBottom:6,textTransform:"uppercase",letterSpacing:".5px"}}>🤖 AI 分析摘要</div>
+              <div style={{fontSize:13,color:"#1e3a8a",lineHeight:1.6}}>{results.summary}</div>
+            </div>
+          )}
+
+          {results.mode==="keyword"&&(
+            <div className="result-bar" style={{marginBottom:10}}>
+              <span>「{results.query||results.q}」共找到 <strong>{results.total}</strong> 条</span>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:11,color:"#94a3b8"}}>最多显示</span>
+                <select value={limit} onChange={e=>{setLimit(Number(e.target.value));doSearch(q,"keyword");}} style={{width:70,padding:"3px 6px",fontSize:12}}>
+                  {[10,20,50,100].map(n=><option key={n} value={n}>{n}</option>)}
+                </select>
               </div>
             </div>
           )}
 
+          {results.mode==="ai"&&results.items.length>0&&(
+            <div className="result-bar" style={{marginBottom:10}}>
+              <span>AI 筛选出 <strong>{results.total}</strong> 条相关政策</span>
+            </div>
+          )}
+
+          {results.items.length===0 && !results.error && (
+            <div className="empty"><div className="empty-icon">🔎</div><div>未找到匹配结果</div>
+              {results.mode==="keyword"&&(
+                <div style={{fontSize:12,marginTop:8,color:"#94a3b8"}}>
+                  💡 提示：尝试更短的关键词，或切换到 AI 智能检索
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
-            {results.items.map(item=>(
-              <div key={item.id} className="fts-result-item" onClick={()=>setSelItem(item)}>
+            {results.items.map((item,idx)=>(
+              <div key={item.id||idx} className="fts-result-item" onClick={()=>setSelItem(item)}>
                 <div className="fts-result-title">{item.title}</div>
-                {item.snippet && (
-                  <div className="fts-result-snippet">{item.snippet}</div>
+                {item.ai_key_point&&(
+                  <div style={{fontSize:12,color:"#1d4ed8",background:"#eff6ff",borderRadius:6,padding:"4px 8px",margin:"4px 0",display:"flex",alignItems:"center",gap:8}}>
+                    <span>🤖 {item.ai_key_point}</span>
+                    {item.ai_relevance&&(
+                      <span style={{fontWeight:700,color:item.ai_relevance==="高"?"#16a34a":item.ai_relevance==="中"?"#d97706":"#94a3b8",flexShrink:0}}>
+                        相关度：{item.ai_relevance}
+                      </span>
+                    )}
+                  </div>
                 )}
+                {item.snippet&&<div className="fts-result-snippet">{item.snippet}</div>}
                 <div className="fts-result-meta">
                   <span className="badge badge-source">{item.source_name||"-"}</span>
                   {item.region&&item.region!=="全国"&&<span className="badge badge-region">{item.region}</span>}
@@ -3033,9 +3104,9 @@ function SearchView() {
 
       {!results && !loading && (
         <div style={{textAlign:"center",padding:"40px 0",color:"#94a3b8"}}>
-          <div style={{fontSize:36,marginBottom:10}}>🔍</div>
-          <div style={{fontSize:13}}>输入关键词开始全文搜索</div>
-          <div style={{fontSize:11,marginTop:6}}>支持中文短语 · 覆盖政策全文内容（含正文存档）</div>
+          <div style={{fontSize:36,marginBottom:10}}>{mode==="ai"?"🤖":"🔍"}</div>
+          <div style={{fontSize:13}}>{mode==="ai"?"用自然语言描述您想了解的政策问题":"输入关键词开始全文搜索"}</div>
+          <div style={{fontSize:11,marginTop:6}}>{mode==="ai"?"Claude AI 语义理解 · 智能相关度排序 · 结果摘要":"支持中文短语 · 覆盖政策全文内容（含正文存档）"}</div>
         </div>
       )}
 
@@ -3362,7 +3433,7 @@ function App() {
         <main className="app-main">
           {view==="dashboard"&&<DashboardView stats={stats} onViewAll={()=>setView("list")}/>}
           {view==="list"&&<ListView catCounts={catCounts} regions={regions} regionCounts={regionCounts} sources={sources} onAddToCompare={addToCompare} compareIds={compareItems.map(x=>x.id)}/>}
-          {view==="search"&&<SearchView/>}
+          {view==="search"&&<SearchView userInfo={userInfo}/>}
           {view==="bookmarks"&&<BookmarksView/>}
           {view==="sources"&&<SourceStatusView/>}
           {view==="notifs"&&<NotificationsView onUnreadChange={n=>{setUnread(n);}}/>}

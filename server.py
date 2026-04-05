@@ -713,9 +713,24 @@ async def api_item_checklist(item_id: int, format: str = "md", user=Depends(requ
 
 
 @app.get("/api/items/{item_id}/analysis")
-async def api_item_analysis(item_id: int, mode: str = "standard", force: bool = False, user=Depends(require_login)):
-    """政策 AI 解读（与 ai/interpret 共用逻辑）。"""
-    # 检查缓存
+async def api_item_analysis(item_id: int, user=Depends(require_login)):
+    """检查缓存的 AI 解读（不触发 LLM）。"""
+    conn = get_conn()
+    try:
+        cached = conn.execute(
+            "SELECT analysis_data FROM item_analyses WHERE item_id=?", (item_id,)
+        ).fetchone()
+        if cached:
+            data = json.loads(cached["analysis_data"])
+            data["has"] = True
+            return data
+        return {"has": False}
+    finally:
+        conn.close()
+
+
+async def _run_ai_analysis(item_id: int, user_context: str = "", force: bool = False):
+    """实际调用 Claude API 生成政策解读，并写入缓存。"""
     if not force:
         conn = get_conn()
         try:
@@ -723,7 +738,9 @@ async def api_item_analysis(item_id: int, mode: str = "standard", force: bool = 
                 "SELECT analysis_data FROM item_analyses WHERE item_id=?", (item_id,)
             ).fetchone()
             if cached:
-                return json.loads(cached["analysis_data"])
+                data = json.loads(cached["analysis_data"])
+                data["has"] = True
+                return data
         finally:
             conn.close()
 
@@ -733,20 +750,86 @@ async def api_item_analysis(item_id: int, mode: str = "standard", force: bool = 
     finally:
         conn.close()
     if not row:
-        raise HTTPException(404)
+        raise HTTPException(404, "政策不存在")
 
     item = _item_to_dict(row)
-    return {
-        "item_id": item_id,
-        "title": item.get("title", ""),
-        "core_content": "政策解读功能需要 ANTHROPIC_API_KEY。",
-        "key_requirements": [],
-        "impact_analysis": {"developers": "", "manufacturers": "", "grid": ""},
-        "action_items": [],
-        "timeline": "",
-        "overall_assessment": "",
-        "status": "no_api_key",
-    }
+    content_text = f"""政策标题：{item['title']}
+地区：{item.get('region', '未知')}
+时间：{item.get('date', '未知')}
+层级：{item.get('level', '未知')}
+状态：{item.get('status', '未知')}
+分类：{', '.join(item.get('categories', []))}
+摘要：{item.get('summary') or '（无摘要）'}
+{('正文：' + (item.get('content') or '')[:3000]) if item.get('content') else ''}"""
+
+    if user_context:
+        content_text = f"{user_context}\n\n{content_text}"
+
+    client = _get_anthropic_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2000,
+        system="你是中国储能电力政策专家。请用简洁、专业的中文解读政策，严格按 JSON 格式回复。",
+        messages=[{"role": "user", "content": f"""请解读以下政策文件：
+
+{content_text}
+
+请返回 JSON：
+{{
+  "core_content": "政策核心内容（3-5个要点，每点一句话，用分号分隔）",
+  "key_requirements": ["关键要求1", "关键要求2", "关键要求3"],
+  "impact_analysis": {{
+    "developers": "对电站开发商/投资方的影响",
+    "manufacturers": "对设备制造商的影响",
+    "grid": "对电网公司/调度机构的影响"
+  }},
+  "action_items": ["建议行动1", "建议行动2", "建议行动3"],
+  "timeline": "重要时间节点（如有，否则填无）",
+  "overall_assessment": "总体评价及政策走向判断（1-2句话）"
+}}
+只返回 JSON。"""}],
+    )
+
+    ai_text = response.content[0].text.strip()
+    if "```" in ai_text:
+        import re
+        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", ai_text, re.DOTALL)
+        if m:
+            ai_text = m.group(1)
+
+    try:
+        result = json.loads(ai_text)
+    except Exception:
+        result = {
+            "core_content": "AI 解读暂时不可用",
+            "key_requirements": [],
+            "impact_analysis": {"developers": "", "manufacturers": "", "grid": ""},
+            "action_items": [],
+            "timeline": "",
+            "overall_assessment": "",
+        }
+
+    conn = get_conn()
+    try:
+        conn.execute(
+            """INSERT OR REPLACE INTO item_analyses (item_id, analysis_data, updated_at)
+               VALUES (?, ?, datetime('now','localtime'))""",
+            (item_id, json.dumps(result, ensure_ascii=False)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    result["has"] = True
+    return result
+
+
+@app.post("/api/items/{item_id}/analysis")
+async def api_item_analysis_post(item_id: int, request: Request, mode: str = "standard", force: bool = False, user=Depends(require_login)):
+    """触发 AI 政策解读（调用 Claude API）。"""
+    body = await request.json()
+    user_context = (body.get("user_context") or "").strip()
+    return await _run_ai_analysis(item_id, user_context=user_context, force=force)
 
 
 # ── Search API ────────────────────────────────────────────────────────────────
@@ -1057,86 +1140,8 @@ async def ai_search(request: Request, user=Depends(require_paid)):
 
 @app.get("/api/ai/interpret/{item_id}")
 async def ai_interpret(item_id: int, user=Depends(require_paid)):
-    conn = get_conn()
-    try:
-        cached = conn.execute(
-            "SELECT analysis_data FROM item_analyses WHERE item_id=?", (item_id,)
-        ).fetchone()
-        if cached:
-            return json.loads(cached["analysis_data"])
-        row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
-    finally:
-        conn.close()
-
-    if not row:
-        raise HTTPException(404, "政策不存在")
-
-    item = _item_to_dict(row)
-    content_text = f"""政策标题：{item['title']}
-地区：{item.get('region', '未知')}
-时间：{item.get('date', '未知')}
-层级：{item.get('level', '未知')}
-状态：{item.get('status', '未知')}
-分类：{', '.join(item.get('categories', []))}
-摘要：{item.get('summary') or '（无摘要）'}
-{('正文：' + (item.get('content') or '')[:3000]) if item.get('content') else ''}"""
-
-    client = _get_anthropic_client()
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        system="你是中国储能电力政策专家。请用简洁、专业的中文解读政策，严格按 JSON 格式回复。",
-        messages=[{"role": "user", "content": f"""请解读以下政策文件：
-
-{content_text}
-
-请返回 JSON：
-{{
-  "core_content": "政策核心内容（3-5个要点，每点一句话，用分号分隔）",
-  "key_requirements": ["关键要求1", "关键要求2", "关键要求3"],
-  "impact_analysis": {{
-    "developers": "对电站开发商/投资方的影响",
-    "manufacturers": "对设备制造商的影响",
-    "grid": "对电网公司/调度机构的影响"
-  }},
-  "action_items": ["建议行动1", "建议行动2", "建议行动3"],
-  "timeline": "重要时间节点（如有，否则填无）",
-  "overall_assessment": "总体评价及政策走向判断（1-2句话）"
-}}
-只返回 JSON。"""}],
-    )
-
-    ai_text = response.content[0].text.strip()
-    if "```" in ai_text:
-        import re
-        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", ai_text, re.DOTALL)
-        if m:
-            ai_text = m.group(1)
-
-    try:
-        result = json.loads(ai_text)
-    except Exception:
-        result = {
-            "core_content": "AI 解读暂时不可用",
-            "key_requirements": [],
-            "impact_analysis": {"developers": "", "manufacturers": "", "grid": ""},
-            "action_items": [],
-            "timeline": "",
-            "overall_assessment": "",
-        }
-
-    conn = get_conn()
-    try:
-        conn.execute(
-            """INSERT OR REPLACE INTO item_analyses (item_id, analysis_data, updated_at)
-               VALUES (?, ?, datetime('now','localtime'))""",
-            (item_id, json.dumps(result, ensure_ascii=False)),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    return result
+    """付费用户 AI 政策解读（复用 _run_ai_analysis）。"""
+    return await _run_ai_analysis(item_id)
 
 
 # ── 管理接口 ──────────────────────────────────────────────────────────────────
