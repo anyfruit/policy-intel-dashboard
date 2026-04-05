@@ -229,6 +229,12 @@ CREATE TABLE IF NOT EXISTS subscriptions (
             conn.commit()
         except Exception:
             pass
+        # 迁移：watch_keywords 关注词字段
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN watch_keywords TEXT DEFAULT '[]'")
+            conn.commit()
+        except Exception:
+            pass  # 列已存在，忽略
     print(f"[db] 初始化完成: {DB_PATH}")
 
 

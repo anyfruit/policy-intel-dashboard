@@ -1523,6 +1523,56 @@ function DashboardViz({meta365,sources}) {
   );
 }
 
+// ── WatchKeywordsWidget（首页命中展示）────────────────────
+function WatchKeywordsWidget() {
+  const [data,setData]     = useState(null);
+  const [loading,setLoading] = useState(true);
+
+  useEffect(()=>{
+    fetch("/api/user/keywords/matches?days=7&limit=10",{credentials:"include"})
+      .then(r=>r.json()).then(d=>setData(d)).catch(()=>setData(null))
+      .finally(()=>setLoading(false));
+  },[]);
+
+  if(loading||!data||!data.keywords||data.keywords.length===0) return null;
+
+  function bClass(b){ return {政策:"bucket-policy",补贴:"bucket-subsidy",招标:"bucket-tender",合规:"bucket-compliance"}[b]||"bucket-policy"; }
+
+  return (
+    <div style={{background:"#fff",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"14px 16px",boxShadow:"var(--shadow)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>🔖 关注词命中 <span style={{fontWeight:400,color:"#64748b",fontSize:12}}>近7天</span></div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+          {data.keywords.slice(0,6).map(k=>(
+            <span key={k} style={{padding:"2px 8px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:12,fontSize:11,color:"#1d4ed8"}}>{k}</span>
+          ))}
+          {data.keywords.length>6&&<span style={{fontSize:11,color:"#94a3b8"}}>+{data.keywords.length-6}</span>}
+        </div>
+      </div>
+      {data.items.length===0?(
+        <div style={{fontSize:12,color:"#94a3b8",padding:"10px 0"}}>近7天暂无命中政策</div>
+      ):(
+        <div>
+          {data.items.map(it=>(
+            <div key={it.id} className="latest-item" onClick={()=>window.open(it.url,"_blank")}>
+              <span className={`latest-bucket ${bClass(it.bucket)}`}>{it.bucket}</span>
+              <div className="latest-body">
+                <div className="latest-title" title={it.title}>{it.title}</div>
+                <div className="latest-meta">
+                  <span className="latest-date">📅 {fmtDate(it.date)}</span>
+                  {it.source_name&&<span className="latest-source">· {it.source_name}</span>}
+                  {it.region&&it.region!=="全国"&&<span className="latest-region">{it.region}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+          {data.total>10&&<div style={{fontSize:11,color:"#94a3b8",marginTop:6}}>还有更多命中结果，请前往搜索页查看</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── DashboardView ─────────────────────────────────────────
 function DashboardView({stats,onViewAll,onTagClick}) {
   const [dash,setDash]       = useState(null);
@@ -1617,6 +1667,8 @@ function DashboardView({stats,onViewAll,onTagClick}) {
           )}
         </div>
       </div>
+
+      <WatchKeywordsWidget/>
 
       <div>
         <div className="latest-wrap">
@@ -3041,6 +3093,69 @@ function ScopeView() {
   );
 }
 
+// ── WatchKeywordsPanel ─────────────────────────────────────
+function WatchKeywordsPanel() {
+  const [keywords,setKeywords] = useState([]);
+  const [input,setInput]       = useState("");
+  const [saving,setSaving]     = useState(false);
+  const [saved,setSaved]       = useState(false);
+  const [loading,setLoading]   = useState(true);
+
+  useEffect(()=>{
+    fetch("/api/user/keywords",{credentials:"include"})
+      .then(r=>r.json()).then(d=>setKeywords(d.keywords||[])).catch(()=>{})
+      .finally(()=>setLoading(false));
+  },[]);
+
+  function addKw(){
+    const kw = input.trim();
+    if(!kw||keywords.includes(kw)) { setInput(""); return; }
+    setKeywords([...keywords, kw]);
+    setInput("");
+    setSaved(false);
+  }
+
+  function removeKw(kw){ setKeywords(keywords.filter(k=>k!==kw)); setSaved(false); }
+
+  function onKeyDown(e){ if(e.key==="Enter"){ e.preventDefault(); addKw(); } }
+
+  async function save(){
+    setSaving(true); setSaved(false);
+    try {
+      await fetch("/api/user/keywords",{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({keywords})});
+      setSaved(true);
+      setTimeout(()=>setSaved(false),2500);
+    } catch(ex){} finally { setSaving(false); }
+  }
+
+  if(loading) return null;
+
+  return (
+    <div style={{background:"#fff",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"14px 16px",marginBottom:16,boxShadow:"var(--shadow)"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#0f172a",marginBottom:10}}>🔖 我的关注词</div>
+      <div style={{fontSize:12,color:"#64748b",marginBottom:12}}>设置关注的词（如「液流电池」「虚拟电厂」「补贴」），任何新政策标题或摘要命中即可在首页看到相关动态。</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12,minHeight:28}}>
+        {keywords.length===0&&<span style={{fontSize:12,color:"#94a3b8"}}>暂无关注词，请在下方添加</span>}
+        {keywords.map(kw=>(
+          <span key={kw} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:20,fontSize:12,color:"#1d4ed8"}}>
+            {kw}
+            <button onClick={()=>removeKw(kw)} style={{background:"none",border:"none",cursor:"pointer",color:"#93c5fd",fontSize:14,lineHeight:1,padding:"0 0 0 2px"}} title="删除">×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <input
+          type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKeyDown}
+          placeholder="输入关键词，回车添加…"
+          style={{flex:1,padding:"6px 10px",border:"1.5px solid var(--border)",borderRadius:7,fontSize:13}}
+        />
+        <button className="btn-secondary" onClick={addKw} disabled={!input.trim()}>添加</button>
+        <button className="btn-create" onClick={save} disabled={saving}>{saving?"保存中…":saved?"✓ 已保存":"保存"}</button>
+      </div>
+    </div>
+  );
+}
+
 // ── SubscriptionsView ─────────────────────────────────────
 function SubscriptionsView({smtpConfigured}) {
   const [subs,setSubs]       = useState([]);
@@ -3126,6 +3241,7 @@ function SubscriptionsView({smtpConfigured}) {
 
   return (
     <div>
+      <WatchKeywordsPanel/>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>📬 订阅管理</div>
         <div style={{display:"flex",gap:8}}>

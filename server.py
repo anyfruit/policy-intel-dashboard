@@ -1360,6 +1360,74 @@ async def api_subscription_delete(sub_id: int, user=Depends(require_login)):
     return {"ok": True}
 
 
+# ── Watch Keywords API ────────────────────────────────────────────────────────
+
+@app.get("/api/user/keywords")
+async def api_get_keywords(user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT watch_keywords FROM users WHERE id=?", (user["id"],)).fetchone()
+        kws = _parse_json_field(row["watch_keywords"] if row and row["watch_keywords"] else "[]")
+        return {"keywords": kws}
+    finally:
+        conn.close()
+
+
+@app.put("/api/user/keywords")
+async def api_put_keywords(request: Request, user=Depends(require_login)):
+    body = await request.json()
+    keywords = body.get("keywords", [])
+    if not isinstance(keywords, list):
+        raise HTTPException(400, "keywords 必须是数组")
+    keywords = [str(k).strip() for k in keywords if str(k).strip()][:50]
+    kws_json = json.dumps(keywords, ensure_ascii=False)
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE users SET watch_keywords=? WHERE id=?", (kws_json, user["id"]))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "keywords": keywords}
+
+
+@app.get("/api/user/keywords/matches")
+async def api_keywords_matches(days: int = 7, limit: int = 10, user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT watch_keywords FROM users WHERE id=?", (user["id"],)).fetchone()
+        kws = _parse_json_field(row["watch_keywords"] if row and row["watch_keywords"] else "[]")
+        if not kws:
+            return {"keywords": [], "items": [], "total": 0}
+        conditions = []
+        params: list = []
+        for kw in kws[:20]:
+            like = f"%{kw}%"
+            conditions.append("(title LIKE ? OR summary LIKE ?)")
+            params += [like, like]
+        where = "(" + " OR ".join(conditions) + ")"
+        params.append(f"-{days}")
+        rows = conn.execute(
+            f"SELECT id, title, url, date, source_name, region, categories FROM items"
+            f" WHERE {where} AND date >= date('now', ? || ' days') ORDER BY date DESC LIMIT ?",
+            params + [limit],
+        ).fetchall()
+        items = []
+        for r in rows:
+            cats = _parse_json_field(r["categories"])
+            items.append({
+                "id": r["id"],
+                "title": r["title"],
+                "url": r["url"] or "",
+                "date": r["date"],
+                "source_name": r["source_name"] or "",
+                "region": r["region"] or "全国",
+                "bucket": _classify_bucket(cats),
+            })
+        return {"keywords": kws, "items": items, "total": len(items)}
+    finally:
+        conn.close()
+
+
 # ── Digest & Report API（stub）───────────────────────────────────────────────
 
 @app.get("/api/digest/daily")
