@@ -106,9 +106,9 @@ def infer_categories(text: str) -> List[str]:
         add("中标结果/候选人公示")
 
     # 补贴/试点
-    if re.search(r"补贴|奖补|补助|资金|贴息|支持资金|奖励资金", t):
+    if re.search(r"补贴|奖补|补助|资金|贴息|支持资金|奖励资金|资助", t):
         add("补贴资金/奖补")
-    if re.search(r"示范|试点|清单|遴选|申报|征集", t):
+    if re.search(r"示范项目|示范基地|示范工程|示范名单|试点项目|试点清单|试点名单|遴选|申报.*示范|申报.*试点|示范.*申报|试点.*申报|征集.*示范|征集.*项目清单", t):
         add("示范项目/试点清单")
 
     # 市场规则
@@ -124,7 +124,7 @@ def infer_categories(text: str) -> List[str]:
         add("标准规范")
     if re.search(r"验收|检测|认证|型式试验|抽检", t):
         add("验收/检测/认证")
-    if re.search(r"消防|安全|防火|爆炸|热失控", t):
+    if re.search(r"消防|防火|爆炸|热失控|火灾", t):
         add("安全消防")
     if re.search(r"事故|通报|处罚|执法|风险预警|整改", t):
         add("事故通报/风险预警/执法处罚")
