@@ -2462,6 +2462,126 @@ function BookmarksView() {
   );
 }
 
+// ── ProvinceCompareView（跨省对比）──────────────────────────────────────────
+const PROVINCE_OPTIONS = [
+  "北京","上海","广东","江苏","浙江","山东","河南","湖北","湖南","四川",
+  "安徽","河北","陕西","福建","重庆","云南","辽宁","江西","广西","贵州",
+  "内蒙古","山西","黑龙江","吉林","甘肃","海南","宁夏","新疆","西藏","青海",
+  "天津","全国"
+];
+
+function ProvinceCompareView() {
+  const [selected, setSelected] = React.useState([]);
+  const [loading, setLoading]   = React.useState(false);
+  const [error,   setError]     = React.useState(null);
+  const [data,    setData]      = React.useState(null);
+
+  const toggle = (p) => {
+    setSelected(prev =>
+      prev.includes(p) ? prev.filter(x=>x!==p) : prev.length>=6 ? prev : [...prev, p]
+    );
+  };
+
+  const compare = async () => {
+    if (selected.length < 2) { setError("请至少选择两个省份"); return; }
+    setLoading(true); setError(null); setData(null);
+    try {
+      const r = await fetch("/api/compare-provinces?provinces=" + encodeURIComponent(selected.join(",")));
+      const d = await r.json();
+      if (!r.ok) { setError(d.detail || "请求失败"); }
+      else { setData(d.data); }
+    } catch(e) { setError(String(e)); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{padding:"24px 32px",maxWidth:1100,margin:"0 auto"}}>
+      <h2 style={{fontSize:22,fontWeight:800,marginBottom:8}}>📊 省份政策对比</h2>
+      <p style={{color:"var(--text-muted)",marginBottom:20,fontSize:13}}>选择 2–6 个省份，点击"开始对比"查看各省储能政策分布情况</p>
+
+      {/* 省份选择 */}
+      <div style={{background:"var(--card)",borderRadius:12,padding:20,marginBottom:20}}>
+        <div style={{fontWeight:700,marginBottom:12,fontSize:14}}>选择省份（已选 {selected.length}/6）</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {PROVINCE_OPTIONS.map(p=>{
+            const on = selected.includes(p);
+            return (
+              <button key={p} onClick={()=>toggle(p)}
+                style={{padding:"5px 12px",borderRadius:20,fontSize:13,cursor:"pointer",border:"1px solid",
+                  borderColor: on?"var(--primary)":"var(--border)",
+                  background:  on?"var(--primary)":"transparent",
+                  color:       on?"#fff":"var(--text-muted)",
+                  fontWeight:  on?700:400,
+                  transition:"all .15s"}}>
+                {p}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{marginTop:16,display:"flex",gap:12,alignItems:"center"}}>
+          <button onClick={compare} disabled={loading||selected.length<2}
+            style={{padding:"8px 24px",borderRadius:8,background:"var(--primary)",color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:selected.length<2?"not-allowed":"pointer",opacity:selected.length<2?.5:1}}>
+            {loading?"分析中…":"🔍 开始对比"}
+          </button>
+          {selected.length>0&&<button onClick={()=>setSelected([])} style={{padding:"8px 16px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-muted)",cursor:"pointer",fontSize:13}}>清空</button>}
+          {error&&<span style={{color:"#f87171",fontSize:13}}>{error}</span>}
+        </div>
+      </div>
+
+      {/* 结果表格 */}
+      {data&&(
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr style={{background:"var(--card-hover,#1e293b)"}}>
+                <th style={{...TH,width:80}}>省份</th>
+                <th style={TH}>总政策数</th>
+                <th style={TH}>近30天</th>
+                <th style={TH}>主要分类（Top3）</th>
+                <th style={TH}>最新政策</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row,i)=>(
+                <tr key={row.province} style={{background:i%2===0?"transparent":"var(--card,#0f172a)",borderBottom:"1px solid var(--border)"}}>
+                  <td style={{...TD,fontWeight:700,color:"var(--primary)"}}>{row.province}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:700,fontSize:18}}>{row.total}</td>
+                  <td style={{...TD,textAlign:"center",color:"#4ade80",fontWeight:600}}>{row.recent_30d}</td>
+                  <td style={TD}>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                      {row.top_categories.slice(0,3).map(c=>(
+                        <span key={c.name} style={{background:"var(--primary-dim,#1e3a5f)",color:"var(--primary)",borderRadius:10,padding:"2px 8px",fontSize:11}}>
+                          {c.name} <strong>{c.count}</strong>
+                        </span>
+                      ))}
+                      {row.top_categories.length===0&&<span style={{color:"var(--text-muted)"}}>—</span>}
+                    </div>
+                  </td>
+                  <td style={TD}>
+                    {row.latest.slice(0,2).map(p=>(
+                      <div key={p.id} style={{marginBottom:4}}>
+                        <a href={p.url} target="_blank" rel="noreferrer"
+                          style={{color:"var(--text)",textDecoration:"none",fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:260}}
+                          title={p.title}>
+                          {p.title}
+                        </a>
+                        <span style={{color:"var(--text-muted)",fontSize:11}}>{p.date}</span>
+                      </div>
+                    ))}
+                    {row.latest.length===0&&<span style={{color:"var(--text-muted)"}}>—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+const TH = {padding:"10px 14px",textAlign:"left",fontWeight:700,fontSize:12,color:"var(--text-muted)",borderBottom:"2px solid var(--border)"};
+const TD = {padding:"10px 14px",verticalAlign:"top"};
+
 // ── CompareBar（全局对比托盘）─────────────────────────────
 function CompareBar({items, onRemove, onClear}) {
   const [loading, setLoading]   = useState(false);
@@ -3302,6 +3422,7 @@ function App() {
     {id:"notifs",   label:"🔔 通知"},
     {id:"subs",     label:"📬 订阅"},
     // {id:"scope", label:"🧭 项目配置"},  // 暂隐藏，功能未联动
+    {id:"compare",  label:"📊 省份对比"},
   ];
 
   return (
@@ -3368,6 +3489,7 @@ function App() {
           {view==="notifs"&&<NotificationsView onUnreadChange={n=>{setUnread(n);}}/>}
           {view==="subs"&&<SubscriptionsView smtpConfigured={userInfo?.smtp_configured||false}/>}
           {view==="scope"&&<ScopeView/>}
+          {view==="compare"&&<ProvinceCompareView/>}
         </main>
       </div>
 

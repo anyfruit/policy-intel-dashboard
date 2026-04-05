@@ -782,6 +782,50 @@ async def api_compare(request: Request, user=Depends(require_login)):
         conn.close()
 
 
+# ── Province Compare API ──────────────────────────────────────────────────────
+
+@app.get("/api/compare-provinces")
+async def api_compare_provinces(provinces: str = "", user=Depends(require_login)):
+    """跨省对比：返回指定省份的政策数量、分类分布、最新政策等统计信息"""
+    if not provinces:
+        raise HTTPException(400, "请提供省份列表（逗号分隔）")
+    province_list = [p.strip() for p in provinces.split(",") if p.strip()]
+    if len(province_list) < 2:
+        raise HTTPException(400, "至少选择两个省份")
+    if len(province_list) > 6:
+        province_list = province_list[:6]
+    conn = get_conn()
+    try:
+        result = []
+        for prov in province_list:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM items WHERE region=?", (prov,)
+            ).fetchone()[0]
+            recent_30d = conn.execute(
+                "SELECT COUNT(*) FROM items WHERE region=? AND date >= date('now','-30 days')", (prov,)
+            ).fetchone()[0]
+            cat_rows = conn.execute(
+                "SELECT categories, COUNT(*) as cnt FROM items WHERE region=? AND categories IS NOT NULL AND categories!='' GROUP BY categories ORDER BY cnt DESC LIMIT 5",
+                (prov,)
+            ).fetchall()
+            top_cats = [{"name": r["categories"], "count": r["cnt"]} for r in cat_rows]
+            latest_rows = conn.execute(
+                "SELECT id, title, url, date, source_name FROM items WHERE region=? ORDER BY date DESC, id DESC LIMIT 3",
+                (prov,)
+            ).fetchall()
+            latest = [{"id": r["id"], "title": r["title"], "url": r["url"], "date": r["date"] or "", "source": r["source_name"] or ""} for r in latest_rows]
+            result.append({
+                "province": prov,
+                "total": total,
+                "recent_30d": recent_30d,
+                "top_categories": top_cats,
+                "latest": latest,
+            })
+        return {"data": result}
+    finally:
+        conn.close()
+
+
 # ── Bookmarks API（stub）─────────────────────────────────────────────────────
 
 @app.get("/api/bookmarks")
