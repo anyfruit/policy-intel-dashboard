@@ -251,6 +251,91 @@ def _seed_from_backup() -> None:
 logger = logging.getLogger("scheduler")
 
 
+def _match_subscription(sub: dict, item: dict) -> bool:
+    """检查一条政策是否匹配订阅规则（关键词 + 地区）。"""
+    # 地区过滤：订阅指定了地区，但政策地区不在其中 → 不匹配
+    regions = sub.get("regions") or []
+    if regions:
+        item_region = item.get("region") or ""
+        if not any(r in item_region or item_region in r for r in regions):
+            return False
+
+    # 分类过滤
+    categories = sub.get("categories") or []
+    if categories:
+        item_cats = json.loads(item.get("categories") or "[]") if isinstance(item.get("categories"), str) else (item.get("categories") or [])
+        if not any(c in item_cats for c in categories):
+            return False
+
+    # 关键词过滤：订阅指定了关键词，政策标题/摘要/内容中至少含一个 → 匹配
+    keywords = sub.get("keywords") or []
+    if keywords:
+        text = " ".join([
+            item.get("title") or "",
+            item.get("summary") or "",
+            item.get("content") or "",
+        ]).lower()
+        if not any(kw.lower() in text for kw in keywords if kw):
+            return False
+
+    return True
+
+
+def _dispatch_notifications(new_items: list) -> None:
+    """爬虫完成后，将新政策与订阅规则匹配，发送邮件或存站内通知。"""
+    if not new_items:
+        return
+
+    import notifier
+
+    conn = get_conn()
+    try:
+        subs = conn.execute(
+            "SELECT s.*, u.email AS user_email FROM subscriptions s JOIN users u ON s.user_id=u.id WHERE s.active=1"
+        ).fetchall()
+
+        for sub_row in subs:
+            sub = {
+                "id": sub_row["id"],
+                "user_id": sub_row["user_id"],
+                "name": sub_row["name"],
+                "email": sub_row["email"] or sub_row["user_email"] or "",
+                "keywords": json.loads(sub_row["keywords"] or "[]"),
+                "regions": json.loads(sub_row["regions"] or "[]"),
+                "categories": json.loads(sub_row["categories"] or "[]"),
+                "frequency": sub_row["frequency"],
+            }
+
+            matched = [it for it in new_items if _match_subscription(sub, it)]
+            if not matched:
+                continue
+
+            # 存站内通知（无论是否有 SMTP）
+            for it in matched:
+                try:
+                    conn.execute(
+                        "INSERT INTO notifications (user_id, item_id, subscription_name) VALUES (?,?,?)",
+                        (sub["user_id"], it["id"], sub["name"]),
+                    )
+                except Exception:
+                    pass
+            conn.commit()
+
+            # 即时订阅 + 有邮箱 + SMTP 已配置 → 发邮件
+            if sub["frequency"] == "instant" and sub["email"] and notifier.smtp_configured():
+                try:
+                    html = notifier.build_digest_html(
+                        [{"subscription_name": sub["name"], "items": matched}],
+                        period_label="即时推送",
+                    )
+                    notifier.send_email(sub["email"], f"【政策预警】{sub['name']} — {len(matched)} 条新政策", html)
+                    logger.info("📧 邮件已发送 → %s（%d 条）", sub["email"], len(matched))
+                except Exception:
+                    logger.exception("❌ 邮件发送失败 sub_id=%s email=%s", sub["id"], sub["email"])
+    finally:
+        conn.close()
+
+
 def _run_daily_scrape():
     """后台线程：每 24 小时自动抓取一次政策数据。
     首次运行延迟 5 分钟，避免影响服务启动。
@@ -277,6 +362,23 @@ def _run_daily_scrape():
             auto_scrape.run_cleanup()
             elapsed = (datetime.now() - start).total_seconds()
             logger.info("✅ 定时爬虫完成，耗时 %.0fs", elapsed)
+
+            # 查询今日新增政策，触发订阅通知
+            try:
+                today = start.strftime("%Y-%m-%d")
+                conn = get_conn()
+                try:
+                    rows = conn.execute(
+                        "SELECT * FROM items WHERE date(created_at)=? OR date(updated_at)=?",
+                        (today, today),
+                    ).fetchall()
+                    new_items = [dict(r) for r in rows]
+                finally:
+                    conn.close()
+                _dispatch_notifications(new_items)
+                logger.info("🔔 通知派发完成（%d 条新政策）", len(new_items))
+            except Exception:
+                logger.exception("❌ 通知派发异常")
         except Exception:
             logger.exception("❌ 定时爬虫异常，下次仍会重试")
 
@@ -895,42 +997,147 @@ async def api_bookmark_delete(item_id: int, user=Depends(require_login)):
     return {"ok": True, "bookmarked": False}
 
 
-# ── Notifications API（stub）──────────────────────────────────────────────────
+# ── Notifications API ─────────────────────────────────────────────────────────
 
 @app.get("/api/notifications/count")
 async def api_notif_count(user=Depends(require_login)):
-    return {"unread": 0}
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM notifications WHERE user_id=? AND read_at IS NULL",
+            (user["id"],),
+        ).fetchone()
+        return {"unread": row["cnt"] if row else 0}
+    except Exception:
+        return {"unread": 0}
+    finally:
+        conn.close()
 
 
 @app.get("/api/notifications")
 async def api_notifications(unread_only: bool = False, limit: int = 20, offset: int = 0, user=Depends(require_login)):
-    return {"items": [], "total": 0}
+    conn = get_conn()
+    try:
+        where = "n.user_id=?"
+        params: list = [user["id"]]
+        if unread_only:
+            where += " AND n.read_at IS NULL"
+        total = conn.execute(f"SELECT COUNT(*) as cnt FROM notifications n WHERE {where}", params).fetchone()["cnt"]
+        rows = conn.execute(
+            f"""SELECT n.id, n.item_id, n.subscription_name, n.created_at, n.read_at,
+                       i.title, i.url, i.region, i.date
+                FROM notifications n LEFT JOIN items i ON n.item_id=i.id
+                WHERE {where} ORDER BY n.created_at DESC LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+        items = [dict(r) for r in rows]
+        return {"items": items, "total": total}
+    except Exception:
+        return {"items": [], "total": 0}
+    finally:
+        conn.close()
 
 
 @app.post("/api/notifications/{notif_id}/read")
 async def api_notif_read(notif_id: int, user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE notifications SET read_at=datetime('now','localtime') WHERE id=? AND user_id=?",
+            (notif_id, user["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     return {"ok": True}
 
 
 @app.post("/api/notifications/read-all")
 async def api_notif_read_all(user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE notifications SET read_at=datetime('now','localtime') WHERE user_id=? AND read_at IS NULL",
+            (user["id"],),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     return {"ok": True}
 
 
-# ── Subscriptions API（stub）──────────────────────────────────────────────────
+# ── Subscriptions API ─────────────────────────────────────────────────────────
 
 @app.get("/api/subscriptions")
 async def api_subscriptions(user=Depends(require_login)):
-    return []
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM subscriptions WHERE user_id=? AND active=1 ORDER BY created_at DESC",
+            (user["id"],),
+        ).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "id": r["id"],
+                "name": r["name"],
+                "email": r["email"],
+                "keywords": json.loads(r["keywords"] or "[]"),
+                "regions": json.loads(r["regions"] or "[]"),
+                "categories": json.loads(r["categories"] or "[]"),
+                "buckets": json.loads(r["buckets"] or "[]"),
+                "frequency": r["frequency"],
+                "webhook_url": r["webhook_url"],
+                "created_at": r["created_at"],
+            })
+        return {"subscriptions": result}
+    finally:
+        conn.close()
 
 
 @app.post("/api/subscriptions")
 async def api_subscription_create(request: Request, user=Depends(require_login)):
-    return {"id": 1, "ok": True}
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="订阅名称不能为空")
+    frequency = body.get("frequency", "daily")
+    if frequency not in ("daily", "weekly", "instant"):
+        frequency = "daily"
+    conn = get_conn()
+    try:
+        cur = conn.execute(
+            """INSERT INTO subscriptions (user_id, name, email, keywords, regions, categories, buckets, frequency, webhook_url)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                user["id"],
+                name,
+                (body.get("notify_email") or "").strip(),
+                json.dumps(body.get("keywords") or [], ensure_ascii=False),
+                json.dumps(body.get("regions") or [], ensure_ascii=False),
+                json.dumps(body.get("categories") or [], ensure_ascii=False),
+                json.dumps(body.get("buckets") or [], ensure_ascii=False),
+                frequency,
+                (body.get("webhook_url") or "").strip(),
+            ),
+        )
+        conn.commit()
+        return {"id": cur.lastrowid, "ok": True}
+    finally:
+        conn.close()
 
 
 @app.delete("/api/subscriptions/{sub_id}")
 async def api_subscription_delete(sub_id: int, user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE subscriptions SET active=0 WHERE id=? AND user_id=?",
+            (sub_id, user["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     return {"ok": True}
 
 

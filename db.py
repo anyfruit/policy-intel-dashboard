@@ -94,7 +94,23 @@ CREATE TABLE IF NOT EXISTS notifications (
   user_id           INTEGER NOT NULL,
   item_id           INTEGER NOT NULL,
   subscription_name TEXT,
+  read_at           TEXT,
   created_at        TEXT    DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL,
+  name         TEXT    NOT NULL DEFAULT '我的订阅',
+  email        TEXT    DEFAULT '',
+  keywords     TEXT    DEFAULT '[]',
+  regions      TEXT    DEFAULT '[]',
+  categories   TEXT    DEFAULT '[]',
+  buckets      TEXT    DEFAULT '[]',
+  frequency    TEXT    DEFAULT 'daily',
+  webhook_url  TEXT    DEFAULT '',
+  active       INTEGER DEFAULT 1,
+  created_at   TEXT    DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS user_profiles (
@@ -139,6 +155,33 @@ def init_db() -> None:
             conn.commit()
         except Exception:
             pass  # 列已存在，忽略
+        # 迁移：补充旧数据库中可能缺失的 read_at 列
+        try:
+            conn.execute("ALTER TABLE notifications ADD COLUMN read_at TEXT")
+            conn.commit()
+        except Exception:
+            pass  # 列已存在，忽略
+        # 迁移：补充旧数据库中可能缺失的 subscriptions 表
+        try:
+            conn.executescript("""
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL,
+  name         TEXT    NOT NULL DEFAULT '我的订阅',
+  email        TEXT    DEFAULT '',
+  keywords     TEXT    DEFAULT '[]',
+  regions      TEXT    DEFAULT '[]',
+  categories   TEXT    DEFAULT '[]',
+  buckets      TEXT    DEFAULT '[]',
+  frequency    TEXT    DEFAULT 'daily',
+  webhook_url  TEXT    DEFAULT '',
+  active       INTEGER DEFAULT 1,
+  created_at   TEXT    DEFAULT (datetime('now','localtime'))
+);
+""")
+            conn.commit()
+        except Exception:
+            pass
     print(f"[db] 初始化完成: {DB_PATH}")
 
 
