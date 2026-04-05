@@ -552,27 +552,56 @@ async def api_dashboard_trends(user=Depends(require_login)):
 async def api_dashboard_intel(user=Depends(require_login)):
     conn = get_conn()
     try:
-        # 本周新增
-        new_rows = conn.execute(
-            "SELECT id, title, url, date, source_name, region, categories FROM items WHERE date >= date('now','-7 days') ORDER BY date DESC LIMIT 10"
+        # 解读覆盖率（item_analyses 表中已有解读的条目数）
+        total_count = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        analyzed_count = conn.execute(
+            "SELECT COUNT(*) FROM item_analyses WHERE analysis_data IS NOT NULL AND analysis_data != ''"
+        ).fetchone()[0]
+        pct = round(analyzed_count * 100 / total_count) if total_count > 0 else 0
+
+        # 本周新增 + 分类统计
+        week_rows = conn.execute(
+            "SELECT id, title, url, date, source_name, region, categories FROM items WHERE date >= date('now','-7 days') ORDER BY date DESC LIMIT 50"
         ).fetchall()
-        new_items = []
-        for r in new_rows:
+        week_buckets = {"policy": 0, "subsidy": 0, "tender": 0, "compliance": 0}
+        for r in week_rows:
             cats = _parse_json_field(r["categories"])
-            new_items.append({
-                "id": r["id"],
-                "title": r["title"],
-                "url": r["url"] or "",
-                "date": r["date"],
-                "source_name": r["source_name"] or "",
-                "region": r["region"] or "全国",
-                "bucket": _classify_bucket(cats),
-            })
+            b = _classify_bucket(cats)
+            if b in week_buckets:
+                week_buckets[b] += 1
+            else:
+                week_buckets["policy"] += 1
+        week_new = {
+            "total": len(week_rows),
+            "policy": week_buckets["policy"],
+            "subsidy": week_buckets["subsidy"],
+            "tender": week_buckets["tender"],
+            "compliance": week_buckets["compliance"],
+        }
+
+        # 机会雷达（近30天，含"补贴"/"奖励"/"支持"类关键词）
+        opp_kw = ["补贴", "奖励", "扶持", "支持", "激励", "资金", "申报"]
+        opp_conditions = " OR ".join(f"title LIKE '%{k}%'" for k in opp_kw)
+        opp_rows = conn.execute(
+            f"SELECT id, title, url, date FROM items WHERE date >= date('now','-30 days') AND ({opp_conditions}) ORDER BY date DESC LIMIT 5"
+        ).fetchall()
+        opp_items = [{"id": r["id"], "title": r["title"], "url": r["url"] or "", "date": r["date"]} for r in opp_rows]
+        opportunity = {"count": len(opp_items), "keywords": opp_kw[:5], "items": opp_items}
+
+        # 风险预警（近30天，含"处罚"/"违规"/"整改"类关键词）
+        risk_kw = ["处罚", "违规", "整改", "禁止", "停产", "吊销", "罚款"]
+        risk_conditions = " OR ".join(f"title LIKE '%{k}%'" for k in risk_kw)
+        risk_rows = conn.execute(
+            f"SELECT id, title, url, date FROM items WHERE date >= date('now','-30 days') AND ({risk_conditions}) ORDER BY date DESC LIMIT 5"
+        ).fetchall()
+        risk_items = [{"id": r["id"], "title": r["title"], "url": r["url"] or "", "date": r["date"]} for r in risk_rows]
+        risk = {"count": len(risk_items), "keywords": risk_kw[:5], "items": risk_items}
+
         return {
-            "interpret_coverage": 0,
-            "opportunity_radar": [],
-            "risk_alerts": [],
-            "new_this_week": new_items,
+            "coverage": {"pct": pct, "analyzed": analyzed_count, "total": total_count},
+            "opportunity": opportunity,
+            "risk": risk,
+            "week_new": week_new,
         }
     finally:
         conn.close()
