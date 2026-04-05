@@ -825,14 +825,14 @@ function TrendChart() {
   const s = TAGS.length;
   const M = {l:44, r:14, t:18, b:48};
   // Dynamic width: at least 52px per group so bars are always readable
-  const minGroupPx = 52;
+  const minGroupPx = 80;
   const W = Math.max(700, n * minGroupPx + M.l + M.r);
   const H = 380;
   const innerW = W - M.l - M.r;
   const innerH = H - M.t - M.b;
 
   const step = innerW / n;
-  const groupW = step * 0.88;
+  const groupW = step * 0.92;
   const barW = groupW / s;
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
@@ -1136,7 +1136,7 @@ function CategoryDonut({counts}) {
   })).filter(x=>x.count>0);
   const total = entries.reduce((s,x)=>s+x.count,0) || 1;
 
-  const w=340,h=180,cx=92,cy=92,r1=70,r0=42;
+  const w=320,h=155,cx=82,cy=78,r1=60,r0=36;
   let acc=0;
   const segs = entries.map(e=>{
     const start = acc;
@@ -1172,12 +1172,12 @@ function CategoryDonut({counts}) {
         <text x={cx} y={cy+18} textAnchor="middle" style={{fontSize:11,fontWeight:650,fill:"#94a3b8"}}>近365天</text>
 
         {/* Legend */}
-        <g transform={`translate(175,22)`}>
+        <g transform={`translate(155,18)`}>
           {entries.slice(0,7).map((e,idx)=>(
-            <g key={e.key} transform={`translate(0,${idx*20})`}>
+            <g key={e.key} transform={`translate(0,${idx*18})`}>
               <rect x="0" y="4" width="10" height="10" rx="3" fill={e.color} />
               <text x="16" y="13" style={{fontSize:11,fill:"#475569",fontWeight:650}}>{e.label}</text>
-              <text x="130" y="13" textAnchor="end" style={{fontSize:11,fill:"#94a3b8",fontVariantNumeric:"tabular-nums"}}>{e.count}</text>
+              <text x="120" y="13" textAnchor="end" style={{fontSize:11,fill:"#94a3b8",fontVariantNumeric:"tabular-nums"}}>{e.count}</text>
             </g>
           ))}
         </g>
@@ -1235,49 +1235,90 @@ function SourceBarChart({sources}) {
   );
 }
 
-// ── 中国省份地理热力图 ────────────────────────────────────────
+// ── 中国省份地理热力图（真实 SVG 省界地图）────────────────────
 function ChinaHeatMap({counts}) {
-  const [tip,setTip] = useState(null);
+  const [geo, setGeo]         = useState(null);
+  const [loadErr, setLoadErr] = useState(false);
+  const [tip, setTip]         = useState(null);
 
-  // 省级 + 直辖市中心坐标（viewBox 580×500，经纬度映射）
-  // x = (lon - 73) * 9.35,  y = (53 - lat) * 13.43
-  const PROVS = [
-    {n:"黑龙江",cx:504,cy:67,a:36},  {n:"吉林",cx:494,cy:121,a:24},
-    {n:"辽宁",cx:458,cy:161,a:24},   {n:"内蒙古",cx:411,cy:108,a:32},
-    {n:"新疆",cx:131,cy:148,a:40},   {n:"西藏",cx:140,cy:295,a:34},
-    {n:"青海",cx:215,cy:242,a:28},   {n:"甘肃",cx:289,cy:188,a:28},
-    {n:"宁夏",cx:308,cy:215,a:14},   {n:"陕西",cx:336,cy:242,a:24},
-    {n:"山西",cx:364,cy:215,a:22},   {n:"北京",cx:402,cy:175,a:13},
-    {n:"天津",cx:416,cy:188,a:11},   {n:"河北",cx:392,cy:195,a:24},
-    {n:"山东",cx:427,cy:228,a:24},   {n:"河南",cx:383,cy:255,a:24},
-    {n:"安徽",cx:415,cy:282,a:22},   {n:"江苏",cx:436,cy:268,a:22},
-    {n:"上海",cx:453,cy:295,a:11},   {n:"浙江",cx:441,cy:322,a:22},
-    {n:"四川",cx:280,cy:309,a:30},   {n:"重庆",cx:327,cy:309,a:16},
-    {n:"湖北",cx:364,cy:295,a:24},   {n:"湖南",cx:364,cy:335,a:24},
-    {n:"江西",cx:396,cy:335,a:22},   {n:"贵州",cx:317,cy:349,a:22},
-    {n:"福建",cx:425,cy:362,a:20},   {n:"云南",cx:271,cy:376,a:28},
-    {n:"广西",cx:333,cy:389,a:24},   {n:"广东",cx:383,cy:403,a:28},
-    {n:"海南",cx:355,cy:445,a:16},   {n:"河南",cx:383,cy:255,a:24},
-  ].filter((p,i,arr)=>arr.findIndex(q=>q.n===p.n)===i); // 去重
+  useEffect(() => {
+    fetch("https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json")
+      .then(r => { if(!r.ok) throw new Error("err"); return r.json(); })
+      .then(d => setGeo(d))
+      .catch(() => setLoadErr(true));
+  }, []);
 
-  const pCounts = PROVS.map(p=>({...p,v:Number((counts||{})[p.n]||0)}));
-  const maxV = Math.max(1,...pCounts.map(p=>p.v));
-  const national = Number((counts||{})["全国"]||0);
+  const VW = 600, VH = 500;
+  const minLon = 73, maxLon = 136, minLat = 15, maxLat = 54;
 
-  function heatColor(v){
-    if(!v) return {fill:"#f1f5f9",stroke:"#e2e8f0",txt:"#94a3b8"};
-    const t = v/maxV;
-    // 白→橙→深红
-    const r=255, g=Math.round(255*(1-t*0.82)), b=Math.round(240*(1-t));
-    const alpha = 0.25+t*0.65;
+  function proj([lon, lat]) {
+    const x = (lon - minLon) / (maxLon - minLon) * VW;
+    const y = (1 - (lat - minLat) / (maxLat - minLat)) * VH;
+    return [x, y];
+  }
+
+  function toPath(geometry) {
+    let rings = [];
+    if (geometry.type === 'Polygon') rings = geometry.coordinates;
+    else if (geometry.type === 'MultiPolygon') rings = geometry.coordinates.flat(1);
+    return rings.map(ring =>
+      ring.map((pt, i) => {
+        const [x, y] = proj(pt);
+        return `${i===0?'M':'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join('') + 'Z'
+    ).join(' ');
+  }
+
+  function featureCentroid(f) {
+    const c = f.properties?.centroid || f.properties?.center;
+    if (c) return proj(c);
+    const g = f.geometry;
+    const ring = g.type === 'Polygon' ? g.coordinates[0]
+      : g.coordinates.reduce((a, b) => a[0].length >= b[0].length ? a : b)[0];
+    let lx = 0, ly = 0;
+    ring.forEach(([lo, la]) => { lx += lo; ly += la; });
+    return proj([lx / ring.length, ly / ring.length]);
+  }
+
+  function shortName(n) {
+    const m = {
+      "内蒙古自治区":"内蒙古","新疆维吾尔自治区":"新疆","西藏自治区":"西藏",
+      "广西壮族自治区":"广西","宁夏回族自治区":"宁夏",
+      "香港特别行政区":"香港","澳门特别行政区":"澳门",
+    };
+    return m[n] || n.replace(/[省市]$/, '');
+  }
+
+  const national = Number((counts||{})["全国"] || 0);
+  const maxV = Math.max(1, ...Object.values(counts||{}).map(Number).filter(v => isFinite(v) && v > 0));
+
+  function heatColor(v) {
+    if (!v) return {fill:"#e8f4fd", stroke:"#c8dff0", txt:"#94a3b8"};
+    const t = v / maxV;
+    const r = 255, g = Math.round(255*(1-t*0.82)), b = Math.round(240*(1-t));
+    const alpha = 0.25 + t * 0.65;
     return {
-      fill:`rgba(${r},${g},${b},${alpha})`,
-      stroke:`rgba(220,38,38,${0.2+t*0.6})`,
-      txt: t>0.55?"#fff":"#334155"
+      fill: `rgba(${r},${g},${b},${alpha})`,
+      stroke: `rgba(220,38,38,${0.2+t*0.6})`,
+      txt: t > 0.55 ? "#fff" : "#334155",
     };
   }
 
-  const VW=580, VH=500;
+  // 气泡图兜底数据
+  const PROVS_FB = [
+    {n:"黑龙江",cx:504,cy:67,a:36},{n:"吉林",cx:494,cy:121,a:24},{n:"辽宁",cx:458,cy:161,a:24},
+    {n:"内蒙古",cx:411,cy:108,a:32},{n:"新疆",cx:131,cy:148,a:40},{n:"西藏",cx:140,cy:295,a:34},
+    {n:"青海",cx:215,cy:242,a:28},{n:"甘肃",cx:289,cy:188,a:28},{n:"宁夏",cx:308,cy:215,a:14},
+    {n:"陕西",cx:336,cy:242,a:24},{n:"山西",cx:364,cy:215,a:22},{n:"北京",cx:402,cy:175,a:13},
+    {n:"天津",cx:416,cy:188,a:11},{n:"河北",cx:392,cy:195,a:24},{n:"山东",cx:427,cy:228,a:24},
+    {n:"河南",cx:383,cy:255,a:24},{n:"安徽",cx:415,cy:282,a:22},{n:"江苏",cx:436,cy:268,a:22},
+    {n:"上海",cx:453,cy:295,a:11},{n:"浙江",cx:441,cy:322,a:22},{n:"四川",cx:280,cy:309,a:30},
+    {n:"重庆",cx:327,cy:309,a:16},{n:"湖北",cx:364,cy:295,a:24},{n:"湖南",cx:364,cy:335,a:24},
+    {n:"江西",cx:396,cy:335,a:22},{n:"贵州",cx:317,cy:349,a:22},{n:"福建",cx:425,cy:362,a:20},
+    {n:"云南",cx:271,cy:376,a:28},{n:"广西",cx:333,cy:389,a:24},{n:"广东",cx:383,cy:403,a:28},
+    {n:"海南",cx:355,cy:445,a:16},
+  ];
+
   return (
     <div style={{position:"relative"}}>
       {/* 国家级单独展示 */}
@@ -1288,50 +1329,82 @@ function ChinaHeatMap({counts}) {
         <span style={{fontSize:18,fontWeight:900,color:"#1e40af"}}>{national}</span>
         <span style={{fontSize:11,color:"#60a5fa"}}>条</span>
       </div>
-      <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} style={{overflow:"visible"}}>
-        {/* 大陆轮廓（粗略矩形背景） */}
-        <rect x="60" y="50" width="490" height="400" rx="4" fill="rgba(248,250,252,0.6)" stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4,3"/>
-        {/* 省份圆圈 */}
-        {pCounts.map(p=>{
-          const {fill,stroke,txt}=heatColor(p.v);
-          const r = p.a;
-          return (
-            <g key={p.n} style={{cursor:"pointer"}}
-              onMouseMove={e=>{
-                const sv=e.currentTarget.ownerSVGElement.getBoundingClientRect();
-                setTip({x:e.clientX-sv.left,y:e.clientY-sv.top,name:p.n,v:p.v});
-              }}
-              onMouseLeave={()=>setTip(null)}
-            >
-              <circle cx={p.cx} cy={p.cy} r={r} fill={fill} stroke={stroke} strokeWidth={1.5}/>
-              {r>=13&&(
-                <text x={p.cx} y={p.cy+3} textAnchor="middle"
-                  style={{fontSize:r>20?10:9,fill:txt,fontWeight:800,pointerEvents:"none",userSelect:"none"}}>
-                  {p.n.length>2?p.n.slice(0,2):p.n}
-                </text>
-              )}
-              {p.v>0&&r>=20&&(
-                <text x={p.cx} y={p.cy+14} textAnchor="middle"
-                  style={{fontSize:8,fill:txt,opacity:.85,pointerEvents:"none",userSelect:"none"}}>
-                  {p.v}
-                </text>
-              )}
-            </g>
-          );
-        })}
-        {/* 图例 */}
-        <g transform={`translate(10,${VH-42})`}>
-          <text y="0" style={{fontSize:9,fill:"#94a3b8"}}>政策密度</text>
-          {[0,0.25,0.5,0.75,1].map((t,i)=>{
-            const r=255,g=Math.round(255*(1-t*0.82)),b=Math.round(240*(1-t)),a=0.25+t*0.65;
-            return <rect key={i} x={i*26} y="5" width="24" height="10" rx="2"
-              fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(220,38,38,${0.2+t*0.6})`} strokeWidth="1"/>;
+
+      {!geo && !loadErr && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:220,color:"#94a3b8",fontSize:12}}>
+          <div className="spinner" style={{marginRight:8}}/>加载地图中…
+        </div>
+      )}
+
+      {geo && (
+        <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} style={{overflow:"hidden",borderRadius:4}}>
+          <rect x="0" y="0" width={VW} height={VH} fill="#dbeafe" rx="4"/>
+          {(geo.features||[]).map(f => {
+            const fullName = f.properties?.name || "";
+            if (fullName === "南海诸岛") return null;
+            const name = shortName(fullName);
+            const v = Number((counts||{})[name] || 0);
+            const {fill, stroke, txt} = heatColor(v);
+            let d, clx, cly;
+            try { d = toPath(f.geometry); [clx, cly] = featureCentroid(f); } catch(e) { return null; }
+            if (!d) return null;
+            const inView = clx >= 5 && clx <= VW-5 && cly >= 5 && cly <= VH-5;
+            return (
+              <g key={fullName} style={{cursor:"pointer"}}
+                onMouseMove={e => {
+                  const sv = e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                  setTip({x:e.clientX-sv.left, y:e.clientY-sv.top, name, v});
+                }}
+                onMouseLeave={() => setTip(null)}
+              >
+                <path d={d} fill={fill} stroke={stroke} strokeWidth="0.8"/>
+                {inView && (
+                  <text x={clx} y={cly} textAnchor="middle" dominantBaseline="middle"
+                    style={{fontSize:9,fill:txt,fontWeight:700,pointerEvents:"none",userSelect:"none"}}>
+                    {name.length > 2 ? name.slice(0,2) : name}
+                  </text>
+                )}
+              </g>
+            );
           })}
-          <text x="0" y="26" style={{fontSize:8,fill:"#94a3b8"}}>少</text>
-          <text x="110" y="26" style={{fontSize:8,fill:"#94a3b8"}}>多</text>
-        </g>
-      </svg>
-      {tip&&(
+          {/* 图例 */}
+          <g transform={`translate(8,${VH-42})`}>
+            <text y="0" style={{fontSize:9,fill:"#475569"}}>政策密度</text>
+            {[0,0.25,0.5,0.75,1].map((t,i) => {
+              const r=255,g=Math.round(255*(1-t*0.82)),b=Math.round(240*(1-t)),a=0.25+t*0.65;
+              return <rect key={i} x={i*26} y="5" width="24" height="10" rx="2"
+                fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(220,38,38,${0.2+t*0.6})`} strokeWidth="1"/>;
+            })}
+            <text x="0" y="26" style={{fontSize:8,fill:"#64748b"}}>少</text>
+            <text x="110" y="26" style={{fontSize:8,fill:"#64748b"}}>多</text>
+          </g>
+        </svg>
+      )}
+
+      {loadErr && (
+        <svg width="100%" viewBox="0 0 580 500" style={{overflow:"visible"}}>
+          <rect x="60" y="50" width="490" height="400" rx="4" fill="rgba(248,250,252,0.6)" stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4,3"/>
+          {PROVS_FB.map(p => {
+            const pv = Number((counts||{})[p.n]||0);
+            const {fill,stroke,txt} = heatColor(pv);
+            return (
+              <g key={p.n} style={{cursor:"pointer"}}
+                onMouseMove={e=>{const sv=e.currentTarget.ownerSVGElement.getBoundingClientRect();setTip({x:e.clientX-sv.left,y:e.clientY-sv.top,name:p.n,v:pv});}}
+                onMouseLeave={()=>setTip(null)}
+              >
+                <circle cx={p.cx} cy={p.cy} r={p.a} fill={fill} stroke={stroke} strokeWidth={1.5}/>
+                {p.a>=13&&<text x={p.cx} y={p.cy+3} textAnchor="middle" style={{fontSize:p.a>20?10:9,fill:txt,fontWeight:800,pointerEvents:"none",userSelect:"none"}}>{p.n.length>2?p.n.slice(0,2):p.n}</text>}
+                {pv>0&&p.a>=20&&<text x={p.cx} y={p.cy+14} textAnchor="middle" style={{fontSize:8,fill:txt,opacity:.85,pointerEvents:"none",userSelect:"none"}}>{pv}</text>}
+              </g>
+            );
+          })}
+          <g transform="translate(10,458)">
+            <text y="0" style={{fontSize:9,fill:"#94a3b8"}}>政策密度</text>
+            {[0,0.25,0.5,0.75,1].map((t,i)=>{const r=255,g=Math.round(255*(1-t*0.82)),b=Math.round(240*(1-t)),a=0.25+t*0.65;return <rect key={i} x={i*26} y="5" width="24" height="10" rx="2" fill={`rgba(${r},${g},${b},${a})`} stroke={`rgba(220,38,38,${0.2+t*0.6})`} strokeWidth="1"/>;})}</g>
+        </svg>
+      )}
+
+      {tip && (
         <div className="viz-tooltip" style={{left:tip.x+12,top:tip.y-8}}>
           {tip.name}：{tip.v} 条
         </div>
