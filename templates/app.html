@@ -1875,6 +1875,16 @@ function ItemModal({item,onClose,isLoggedIn,onAddToCompare,isInCompare}) {
   const [analysisError,setAError]      = useState(null);
   const [noKeyMsg,setNoKeyMsg]         = useState(null);
 
+  // ── 原文链接 ──
+  const [sourceLink,setSourceLink]     = useState(null);   // {url, is_official, label} | null
+  useEffect(()=>{
+    if(!item?.id) return;
+    fetch(`/api/items/${item.id}/source-link`)
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d) setSourceLink(d); })
+      .catch(()=>{});
+  },[item?.id]);
+
   useEffect(()=>{
     if(!item) return;
     setVersions(null);
@@ -2232,8 +2242,16 @@ function ItemModal({item,onClose,isLoggedIn,onAddToCompare,isInCompare}) {
           {isLoggedIn&&onAddToCompare&&<button className={`btn-compare-add${isInCompare?" selected":""}`} onClick={()=>onAddToCompare(item)} title="加入对比">
             {isInCompare?"✓ 已加入对比":"⚖️ 加入对比"}
           </button>}
-          <button className="btn-secondary" onClick={()=>window.open(item.url,"_blank")}>打开原文 ↗</button>
-          <button className="btn-secondary" onClick={()=>navigator.clipboard?.writeText(item.url||"")}>复制链接</button>
+          {sourceLink===null ? (
+            <button className="btn-secondary" disabled style={{opacity:.5,cursor:"not-allowed"}} title="暂无原文链接">暂无原文链接</button>
+          ) : sourceLink.url ? (
+            <button className="btn-secondary" onClick={()=>window.open(sourceLink.url,"_blank")}>
+              查看原文 ↗{sourceLink.is_official&&<span style={{marginLeft:4,fontSize:10,background:"#dcfce7",color:"#16a34a",padding:"1px 5px",borderRadius:4,fontWeight:700}}>官方来源</span>}
+            </button>
+          ) : (
+            <button className="btn-secondary" disabled style={{opacity:.5,cursor:"not-allowed"}} title="暂无原文链接">暂无原文链接</button>
+          )}
+          <button className="btn-secondary" onClick={()=>navigator.clipboard?.writeText(sourceLink?.url||item.url||"")}>复制链接</button>
         </div>
 
       </div>

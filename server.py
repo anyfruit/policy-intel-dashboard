@@ -811,6 +811,49 @@ async def api_item(item_id: int):
     return item
 
 
+def _is_fake_url(url: str) -> bool:
+    """True if the URL is a fake/internal hash URL (not a real source)."""
+    if not url:
+        return True
+    try:
+        from urllib.parse import urlparse
+        hostname = urlparse(url).hostname or ""
+        return "in-en.com" in hostname
+    except Exception:
+        return True
+
+
+def _is_official_url(url: str) -> bool:
+    """True if the URL points to a Chinese government official domain."""
+    official_suffixes = ("gov.cn",)
+    try:
+        from urllib.parse import urlparse
+        hostname = urlparse(url).hostname or ""
+        return any(hostname == s or hostname.endswith("." + s) for s in official_suffixes)
+    except Exception:
+        return False
+
+
+@app.get("/api/items/{item_id}/source-link")
+async def api_item_source_link(item_id: int):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT url FROM items WHERE id=?", (item_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404)
+    url = row["url"] or ""
+    if _is_fake_url(url):
+        return {"url": None, "is_official": False, "label": None}
+    is_official = _is_official_url(url)
+    return {
+        "url": url,
+        "is_official": is_official,
+        "label": "官方来源" if is_official else None,
+    }
+
+
 @app.get("/api/items/{item_id}/versions")
 async def api_item_versions(item_id: int, user=Depends(require_login)):
     return {"versions": []}

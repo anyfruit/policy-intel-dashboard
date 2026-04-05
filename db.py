@@ -35,23 +35,24 @@ _CREATE_SCHEMA = """
 PRAGMA journal_mode=WAL;
 
 CREATE TABLE IF NOT EXISTS items (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  url           TEXT    UNIQUE NOT NULL,
-  title         TEXT    NOT NULL,
-  summary       TEXT,
-  content       TEXT,
-  date          TEXT,
-  region        TEXT,
-  source_id     TEXT,
-  source_name   TEXT,
-  categories    TEXT    DEFAULT '[]',
-  tags          TEXT    DEFAULT '[]',
-  impact_on     TEXT    DEFAULT '[]',
-  level         TEXT    DEFAULT '国家',
-  status        TEXT    DEFAULT '现行',
-  deadline_date TEXT,
-  created_at    TEXT    DEFAULT (datetime('now','localtime')),
-  updated_at    TEXT    DEFAULT (datetime('now','localtime'))
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  url               TEXT    UNIQUE NOT NULL,
+  title             TEXT    NOT NULL,
+  summary           TEXT,
+  content           TEXT,
+  date              TEXT,
+  region            TEXT,
+  source_id         TEXT,
+  source_name       TEXT,
+  categories        TEXT    DEFAULT '[]',
+  tags              TEXT    DEFAULT '[]',
+  impact_on         TEXT    DEFAULT '[]',
+  level             TEXT    DEFAULT '国家',
+  status            TEXT    DEFAULT '现行',
+  deadline_date     TEXT,
+  has_original_url  INTEGER DEFAULT 0,
+  created_at        TEXT    DEFAULT (datetime('now','localtime')),
+  updated_at        TEXT    DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS item_versions (
@@ -211,7 +212,36 @@ CREATE TABLE IF NOT EXISTS subscriptions (
             conn.commit()
         except Exception:
             pass
+        # 迁移：新增 has_original_url 字段
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN has_original_url INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass  # 列已存在，忽略
+        # 回填已有数据
+        try:
+            conn.execute("""
+                UPDATE items SET has_original_url = CASE
+                  WHEN url LIKE '%in-en.com%' THEN 0
+                  ELSE 1
+                END WHERE has_original_url IS NULL OR has_original_url = 0
+            """)
+            conn.commit()
+        except Exception:
+            pass
     print(f"[db] 初始化完成: {DB_PATH}")
+
+
+def _compute_has_original_url(url: str) -> int:
+    """1 if url is a real external link; 0 if it's a fake/internal hash URL."""
+    if not url:
+        return 0
+    try:
+        from urllib.parse import urlparse
+        hostname = urlparse(url).hostname or ""
+        return 0 if "in-en.com" in hostname else 1
+    except Exception:
+        return 0
 
 
 def _to_json(v) -> str:
@@ -232,20 +262,21 @@ def upsert_item_with_version(item: dict) -> bool:
         return False
 
     data = {
-        "url":          url,
-        "title":        (item.get("title") or "").strip()[:500],
-        "summary":      (item.get("summary") or "")[:2000],
-        "content":      (item.get("content") or "")[:10000],
-        "date":         item.get("date"),
-        "region":       item.get("region"),
-        "source_id":    item.get("source_id"),
-        "source_name":  item.get("source_name"),
-        "categories":   _to_json(item.get("categories", [])),
-        "tags":         _to_json(item.get("tags", [])),
-        "impact_on":    _to_json(item.get("impact_on", [])),
-        "level":        item.get("level", "国家"),
-        "status":       item.get("status", "现行"),
-        "deadline_date": item.get("deadline_date"),
+        "url":               url,
+        "title":             (item.get("title") or "").strip()[:500],
+        "summary":           (item.get("summary") or "")[:2000],
+        "content":           (item.get("content") or "")[:10000],
+        "date":              item.get("date"),
+        "region":            item.get("region"),
+        "source_id":         item.get("source_id"),
+        "source_name":       item.get("source_name"),
+        "categories":        _to_json(item.get("categories", [])),
+        "tags":              _to_json(item.get("tags", [])),
+        "impact_on":         _to_json(item.get("impact_on", [])),
+        "level":             item.get("level", "国家"),
+        "status":            item.get("status", "现行"),
+        "deadline_date":     item.get("deadline_date"),
+        "has_original_url":  _compute_has_original_url(url),
     }
 
     conn = get_conn()
@@ -256,12 +287,13 @@ def upsert_item_with_version(item: dict) -> bool:
             conn.execute(
                 """INSERT INTO items
                    (url,title,summary,content,date,region,source_id,source_name,
-                    categories,tags,impact_on,level,status,deadline_date)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    categories,tags,impact_on,level,status,deadline_date,has_original_url)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (data["url"], data["title"], data["summary"], data["content"],
                  data["date"], data["region"], data["source_id"], data["source_name"],
                  data["categories"], data["tags"], data["impact_on"],
-                 data["level"], data["status"], data["deadline_date"]),
+                 data["level"], data["status"], data["deadline_date"],
+                 data["has_original_url"]),
             )
             conn.commit()
             return True
