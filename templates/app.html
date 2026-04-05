@@ -3502,6 +3502,192 @@ function PublicApp({onLogin}) {
   );
 }
 
+// ── Weekly Reports View ───────────────────────────────────
+function WeeklyReportsView() {
+  const [list, setList]         = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [detail, setDetail]     = useState(null);
+  const [loading, setLoading]   = useState(false);
+  const [genWeek, setGenWeek]   = useState("");
+  const [genLoading, setGenLoading] = useState(false);
+
+  // default genWeek to current ISO week
+  useEffect(()=>{
+    const d = new Date();
+    const startOfYear = new Date(d.getFullYear(), 0, 1);
+    const dayOfYear = Math.floor((d - startOfYear) / 86400000);
+    // JS getDay: 0=Sun,1=Mon...6=Sat. ISO week starts Mon.
+    const dayOfWeek = (d.getDay() + 6) % 7; // Mon=0..Sun=6
+    const weekNum   = Math.ceil((dayOfYear - dayOfWeek + 10) / 7);
+    setGenWeek(`${d.getFullYear()}-W${String(weekNum).padStart(2,"0")}`);
+  },[]);
+
+  useEffect(()=>{
+    fetch("/api/reports/list?report_type=weekly",{credentials:"include"})
+      .then(r=>r.json()).then(d=>setList(d.reports||[])).catch(()=>setList([]));
+  },[]);
+
+  function loadDetail(period) {
+    setSelected(period);
+    setDetail(null);
+    setLoading(true);
+    fetch(`/api/report/weekly?week=${encodeURIComponent(period)}`,{credentials:"include"})
+      .then(r=>r.json()).then(d=>{setDetail(d);setLoading(false);}).catch(()=>setLoading(false));
+  }
+
+  function generateReport() {
+    if(!genWeek) return;
+    setGenLoading(true);
+    fetch(`/api/report/weekly?week=${encodeURIComponent(genWeek)}`,{credentials:"include"})
+      .then(r=>r.json()).then(d=>{
+        setGenLoading(false);
+        setDetail(d);
+        setSelected(genWeek);
+        // refresh list
+        fetch("/api/reports/list?report_type=weekly",{credentials:"include"})
+          .then(r=>r.json()).then(dd=>setList(dd.reports||[])).catch(()=>{});
+      }).catch(()=>setGenLoading(false));
+  }
+
+  const pageStyle = {padding:"20px 24px"};
+  const cardStyle = {background:"#fff",border:"1px solid var(--border)",borderRadius:"var(--radius)",boxShadow:"var(--shadow)",padding:"16px 20px",marginBottom:12};
+
+  return (
+    <div style={pageStyle}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:800,color:"#0f172a"}}>📰 储能政策周报</div>
+          <div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>每周自动汇总新增政策 · 支持在线查看与下载</div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input
+            type="text" value={genWeek} onChange={e=>setGenWeek(e.target.value)}
+            placeholder="2026-W14"
+            style={{padding:"6px 10px",border:"1px solid var(--border)",borderRadius:8,fontSize:13,width:110}}
+          />
+          <button
+            onClick={generateReport} disabled={genLoading||!genWeek}
+            style={{padding:"7px 14px",background:"var(--primary-grad)",color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",opacity:genLoading?0.6:1}}
+          >{genLoading?"生成中…":"生成周报"}</button>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+        {/* 左：列表 */}
+        <div style={{width:220,flexShrink:0}}>
+          <div style={{...cardStyle,padding:"12px 14px"}}>
+            <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"#64748b",marginBottom:10}}>历史周报</div>
+            {list===null && <div style={{fontSize:12,color:"#94a3b8"}}>加载中…</div>}
+            {list!==null && list.length===0 && <div style={{fontSize:12,color:"#94a3b8"}}>暂无周报，请点击"生成周报"</div>}
+            {(list||[]).map(r=>(
+              <div key={r.period}
+                onClick={()=>loadDetail(r.period)}
+                style={{padding:"8px 10px",borderRadius:8,cursor:"pointer",marginBottom:4,
+                  background:selected===r.period?"var(--primary-light)":"transparent",
+                  color:selected===r.period?"var(--primary)":"#334155",fontWeight:selected===r.period?700:400,fontSize:13,
+                  transition:"background .12s"}}
+              >
+                {r.period}
+                <div style={{fontSize:11,color:"#94a3b8",fontWeight:400}}>{r.created_at?.slice(0,10)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 右：详情 */}
+        <div style={{flex:1,minWidth:0}}>
+          {!selected && !loading && (
+            <div style={{...cardStyle,textAlign:"center",padding:"40px 20px",color:"#94a3b8",fontSize:13}}>
+              ← 从左侧选择周报查看详情，或输入周次生成新报告
+            </div>
+          )}
+          {loading && <div style={{...cardStyle,textAlign:"center",padding:"40px",color:"#94a3b8",fontSize:13}}>加载中…</div>}
+          {detail && !loading && (
+            <div>
+              {/* 报告头 */}
+              <div style={{background:"linear-gradient(135deg,#1e40af,#2563eb)",color:"#fff",borderRadius:"var(--radius)",padding:"20px 24px",marginBottom:12}}>
+                <div style={{fontSize:16,fontWeight:800,marginBottom:4}}>⚡ 储能政策情报周报 · {detail.week}</div>
+                <div style={{fontSize:12,opacity:.85}}>{detail.start_date} 至 {detail.end_date}</div>
+                <div style={{marginTop:12,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <div style={{background:"rgba(255,255,255,.15)",borderRadius:8,padding:"8px 16px",textAlign:"center"}}>
+                    <div style={{fontSize:28,fontWeight:900,lineHeight:1}}>{detail.total_new}</div>
+                    <div style={{fontSize:11,opacity:.8,marginTop:3}}>本周新增政策</div>
+                  </div>
+                  <div style={{flex:1}}/>
+                  <a
+                    href={`/api/report/weekly/download?week=${encodeURIComponent(detail.week)}`}
+                    style={{padding:"7px 14px",background:"rgba(255,255,255,.2)",border:"1px solid rgba(255,255,255,.35)",color:"#fff",borderRadius:8,fontSize:12,fontWeight:700,textDecoration:"none",cursor:"pointer"}}
+                  >⬇ 下载 HTML</a>
+                </div>
+              </div>
+
+              {/* AI 总结 */}
+              {detail.ai_summary && (
+                <div style={{...cardStyle,borderLeft:"3px solid var(--primary)"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1e40af",marginBottom:8}}>🤖 AI 智能总结</div>
+                  <div style={{fontSize:13,lineHeight:1.7,color:"#1e293b"}}>{detail.ai_summary}</div>
+                </div>
+              )}
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                {/* 地区分布 */}
+                <div style={cardStyle}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>🗺️ 地区分布</div>
+                  {(detail.by_region||[]).length===0 && <div style={{fontSize:12,color:"#94a3b8"}}>暂无数据</div>}
+                  {(detail.by_region||[]).map(r=>(
+                    <div key={r.region} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}>
+                      <span style={{color:"#334155"}}>{r.region}</span>
+                      <span style={{fontWeight:700,color:"#1d4ed8"}}>{r.count}</span>
+                    </div>
+                  ))}
+                </div>
+                {/* 分类分布 */}
+                <div style={cardStyle}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>📂 分类分布</div>
+                  {(detail.by_category||[]).length===0 && <div style={{fontSize:12,color:"#94a3b8"}}>暂无数据</div>}
+                  {(detail.by_category||[]).map(c=>(
+                    <div key={c.category} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}>
+                      <span style={{color:"#334155"}}>{c.category}</span>
+                      <span style={{fontWeight:700,color:"#1d4ed8"}}>{c.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Top 5 */}
+              <div style={cardStyle}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>⭐ 重点政策 Top 5</div>
+                {(detail.top5||[]).length===0 && <div style={{fontSize:12,color:"#94a3b8"}}>本周暂无政策数据</div>}
+                {(detail.top5||[]).map((p,i)=>(
+                  <div key={p.id} style={{display:"flex",gap:10,padding:"10px 0",borderBottom:"1px solid #f1f5f9"}}>
+                    <div style={{flexShrink:0,width:24,height:24,background:"#1d4ed8",color:"#fff",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,marginTop:2}}>
+                      {i+1}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <a href={p.url||"#"} target="_blank" rel="noopener noreferrer"
+                        style={{fontSize:13,fontWeight:600,color:"#1e40af",textDecoration:"none",lineHeight:1.4,display:"block"}}>
+                        {p.title}
+                      </a>
+                      <div style={{fontSize:11,color:"#64748b",marginTop:3}}>
+                        {p.date} · {p.region} · {(p.categories||[]).join("、")}
+                      </div>
+                      {p.summary && <div style={{fontSize:12,color:"#475569",marginTop:5,lineHeight:1.5}}>{p.summary}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{fontSize:11,color:"#94a3b8",textAlign:"center",marginTop:8}}>
+                生成时间：{detail.generated_at}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Authenticated App ─────────────────────────────────────
 function App() {
   const [authState,setAuth]     = useState("checking");
@@ -3595,6 +3781,7 @@ function App() {
     {id:"list",     label:"📋 政策列表"},
     {id:"search",   label:"🔍 问政策"},
     {id:"province-compare",label:"⚖️ 省份对比"},
+    {id:"reports",  label:"📰 周报"},
     {id:"bookmarks",label:"⭐ 收藏夹"},
     {id:"sources",  label:"📡 数据源"},
     {id:"notifs",   label:"🔔 通知"},
@@ -3662,6 +3849,7 @@ function App() {
           {view==="list"&&<ListView catCounts={catCounts} regions={regions} regionCounts={regionCounts} sources={sources} onAddToCompare={addToCompare} compareIds={compareItems.map(x=>x.id)}/>}
           {view==="search"&&<SearchView/>}
           {view==="province-compare"&&<ProvinceCompareView/>}
+          {view==="reports"&&<WeeklyReportsView/>}
           {view==="bookmarks"&&<BookmarksView/>}
           {view==="sources"&&<SourceStatusView/>}
           {view==="notifs"&&<NotificationsView onUnreadChange={n=>{setUnread(n);}}/>}

@@ -139,6 +139,15 @@ CREATE TABLE IF NOT EXISTS policy_timeline (
   UNIQUE(policy_group_id, item_id)
 );
 
+CREATE TABLE IF NOT EXISTS reports (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_type  TEXT    NOT NULL DEFAULT 'weekly',
+  period       TEXT    NOT NULL,
+  content_json TEXT,
+  created_at   TEXT    DEFAULT (datetime('now','localtime')),
+  UNIQUE(report_type, period)
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_date     ON items(date);
 CREATE INDEX IF NOT EXISTS idx_items_region   ON items(region);
 CREATE INDEX IF NOT EXISTS idx_items_level    ON items(level);
@@ -147,6 +156,7 @@ CREATE INDEX IF NOT EXISTS idx_items_source   ON items(source_id);
 CREATE INDEX IF NOT EXISTS idx_items_updated  ON items(updated_at);
 CREATE INDEX IF NOT EXISTS idx_timeline_group ON policy_timeline(policy_group_id);
 CREATE INDEX IF NOT EXISTS idx_timeline_item  ON policy_timeline(item_id);
+CREATE INDEX IF NOT EXISTS idx_reports_period ON reports(report_type, period);
 """
 
 

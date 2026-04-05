@@ -10,7 +10,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -360,6 +360,17 @@ def _run_daily_scrape():
                 logger.warning("BRAVE_API_KEY 未设置，省份搜索已跳过（仅跑月报）")
             auto_scrape.run_deadline_extraction()
             auto_scrape.run_cleanup()
+
+            # 周日额外生成本周周报并缓存
+            if datetime.now().weekday() == 6:  # 0=Monday, 6=Sunday
+                try:
+                    week = _current_iso_week()
+                    report = _generate_weekly_report_data(week)
+                    _save_report("weekly", week, report)
+                    logger.info("📰 周日周报已生成: %s", week)
+                except Exception:
+                    logger.exception("❌ 周报生成失败")
+
             elapsed = (datetime.now() - start).total_seconds()
             logger.info("✅ 定时爬虫完成，耗时 %.0fs", elapsed)
 
@@ -1333,12 +1344,282 @@ async def api_digest_daily(days: int = 1, brief: bool = False, user=Depends(requ
         conn.close()
 
 
+# ── Weekly Report helpers ─────────────────────────────────────────────────────
+
+def _parse_iso_week(week: str):
+    """'2026-W14' → (start_date_str, end_date_str)"""
+    try:
+        year_s, wnum_s = week.split("-W")
+        d = date.fromisocalendar(int(year_s), int(wnum_s), 1)
+        return d.isoformat(), (d + timedelta(days=6)).isoformat()
+    except Exception:
+        raise HTTPException(400, "week 格式错误，应为 YYYY-Www，例如 2026-W14")
+
+
+def _current_iso_week() -> str:
+    iso = date.today().isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
+
+
+def _generate_weekly_report_data(week: str) -> dict:
+    start, end = _parse_iso_week(week)
+    conn = get_conn()
+    try:
+        total_new = conn.execute(
+            "SELECT COUNT(*) FROM items WHERE date >= ? AND date <= ?", (start, end)
+        ).fetchone()[0]
+
+        region_rows = conn.execute(
+            """SELECT region, COUNT(*) as cnt FROM items
+               WHERE date >= ? AND date <= ? AND region IS NOT NULL AND region != ''
+               GROUP BY region ORDER BY cnt DESC LIMIT 10""",
+            (start, end),
+        ).fetchall()
+        by_region = [{"region": r["region"], "count": r["cnt"]} for r in region_rows]
+
+        cat_rows = conn.execute(
+            "SELECT categories FROM items WHERE date >= ? AND date <= ? AND categories IS NOT NULL AND categories != '[]'",
+            (start, end),
+        ).fetchall()
+        cat_counts: dict = {}
+        for row in cat_rows:
+            for c in _parse_json_field(row["categories"]):
+                cat_counts[c] = cat_counts.get(c, 0) + 1
+        by_category = [
+            {"category": k, "count": v}
+            for k, v in sorted(cat_counts.items(), key=lambda x: -x[1])[:10]
+        ]
+
+        top5_rows = conn.execute(
+            """SELECT id, title, summary, categories, region, date, url FROM items
+               WHERE date >= ? AND date <= ? ORDER BY date DESC, id DESC LIMIT 5""",
+            (start, end),
+        ).fetchall()
+        top5 = []
+        for r in top5_rows:
+            top5.append({
+                "id": r["id"],
+                "title": r["title"],
+                "summary": (r["summary"] or "")[:200],
+                "categories": _parse_json_field(r["categories"]),
+                "region": r["region"] or "全国",
+                "date": r["date"],
+                "url": r["url"] or "",
+            })
+    finally:
+        conn.close()
+
+    report = {
+        "week": week,
+        "start_date": start,
+        "end_date": end,
+        "total_new": total_new,
+        "by_region": by_region,
+        "by_category": by_category,
+        "top5": top5,
+        "ai_summary": "",
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key and total_new > 0:
+        try:
+            import urllib.request as _urlreq
+            titles = "\n".join(f"- {x['title']}" for x in top5)
+            prompt = (
+                f"请用3句话总结本周({start}至{end})储能政策动态，"
+                f"共{total_new}条新政策，重点政策：\n{titles}"
+            )
+            payload = json.dumps({
+                "model": "gpt-3.5-turbo",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+            }).encode()
+            req = _urlreq.Request(
+                "https://api.openai.com/v1/chat/completions",
+                data=payload,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {openai_key}"},
+            )
+            with _urlreq.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                report["ai_summary"] = data["choices"][0]["message"]["content"].strip()
+        except Exception as _e:
+            logger.warning("AI 总结失败: %s", _e)
+
+    return report
+
+
+def _save_report(report_type: str, period: str, content: dict) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            """INSERT OR REPLACE INTO reports (report_type, period, content_json, created_at)
+               VALUES (?, ?, ?, datetime('now','localtime'))""",
+            (report_type, period, json.dumps(content, ensure_ascii=False)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _render_weekly_report_html(report: dict) -> str:
+    week         = report.get("week", "")
+    start        = report.get("start_date", "")
+    end          = report.get("end_date", "")
+    total_new    = report.get("total_new", 0)
+    by_region    = report.get("by_region", [])
+    by_category  = report.get("by_category", [])
+    top5         = report.get("top5", [])
+    ai_summary   = report.get("ai_summary", "")
+    generated_at = report.get("generated_at", "")
+
+    region_rows = "".join(
+        f"<tr><td>{r['region']}</td><td>{r['count']}</td></tr>" for r in by_region
+    )
+    cat_rows = "".join(
+        f"<tr><td>{c['category']}</td><td>{c['count']}</td></tr>" for c in by_category
+    )
+    top5_html = ""
+    for i, p in enumerate(top5):
+        cats = "、".join(p.get("categories", []))
+        url  = p.get("url", "#") or "#"
+        top5_html += f"""
+        <div class="policy-item">
+          <div class="policy-rank">#{i+1}</div>
+          <div class="policy-body">
+            <a href="{url}" target="_blank" class="policy-title">{p.get('title','')}</a>
+            <div class="policy-meta">{p.get('date','')} · {p.get('region','全国')} · {cats}</div>
+            <div class="policy-summary">{p.get('summary','')}</div>
+          </div>
+        </div>"""
+
+    ai_block = (
+        f'<div class="section ai-section"><h2>🤖 AI 智能总结</h2>'
+        f'<p>{ai_summary}</p></div>'
+        if ai_summary else ""
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>储能政策周报 {week}</title>
+<style>
+body{{font-family:ui-sans-serif,-apple-system,sans-serif;background:#f1f5f9;color:#0f172a;margin:0;padding:24px;}}
+.container{{max-width:800px;margin:0 auto;background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);overflow:hidden;}}
+.report-header{{background:linear-gradient(135deg,#1e40af,#2563eb);color:#fff;padding:32px 36px 28px;}}
+.report-header h1{{font-size:22px;font-weight:800;margin:0 0 6px;}}
+.report-header .period{{font-size:14px;opacity:.85;}}
+.report-header .meta{{font-size:12px;opacity:.7;margin-top:8px;}}
+.section{{padding:24px 36px;border-bottom:1px solid #e5e7eb;}}
+.section:last-child{{border-bottom:none;}}
+.section h2{{font-size:16px;font-weight:700;margin:0 0 14px;color:#1e40af;}}
+.stat-box{{display:inline-block;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px 24px;text-align:center;}}
+.stat-box .num{{font-size:36px;font-weight:900;color:#1d4ed8;line-height:1;}}
+.stat-box .lbl{{font-size:12px;color:#3b82f6;margin-top:4px;}}
+table{{width:100%;border-collapse:collapse;font-size:13px;}}
+th{{background:#f8fafc;padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:2px solid #e2e8f0;}}
+td{{padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#334155;}}
+tr:last-child td{{border-bottom:none;}}
+.policy-item{{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;}}
+.policy-item:last-child{{border-bottom:none;}}
+.policy-rank{{flex-shrink:0;width:28px;height:28px;background:#1d4ed8;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;margin-top:2px;}}
+.policy-body{{flex:1;min-width:0;}}
+.policy-title{{font-size:14px;font-weight:600;color:#1e40af;text-decoration:none;line-height:1.4;}}
+.policy-title:hover{{text-decoration:underline;}}
+.policy-meta{{font-size:11px;color:#64748b;margin-top:4px;}}
+.policy-summary{{font-size:12px;color:#475569;margin-top:6px;line-height:1.5;}}
+.ai-section{{background:#fafafa;}}
+.ai-section p{{font-size:14px;line-height:1.7;color:#1e293b;margin:0;padding:12px 16px;background:#fff;border-left:3px solid #2563eb;border-radius:0 8px 8px 0;}}
+.footer{{text-align:center;font-size:11px;color:#94a3b8;padding:16px;background:#f8fafc;}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="report-header">
+    <h1>⚡ 储能政策情报周报</h1>
+    <div class="period">报告周期：{start} 至 {end}（{week}）</div>
+    <div class="meta">生成时间：{generated_at} · 储能政策情报看板</div>
+  </div>
+  {ai_block}
+  <div class="section">
+    <h2>📊 本周概览</h2>
+    <div class="stat-box"><div class="num">{total_new}</div><div class="lbl">本周新增政策</div></div>
+  </div>
+  <div class="section">
+    <h2>🗺️ 地区分布</h2>
+    <table><thead><tr><th>地区</th><th>政策数</th></tr></thead>
+    <tbody>{region_rows if region_rows else "<tr><td colspan='2' style='color:#94a3b8'>暂无数据</td></tr>"}</tbody></table>
+  </div>
+  <div class="section">
+    <h2>📂 分类分布</h2>
+    <table><thead><tr><th>分类</th><th>政策数</th></tr></thead>
+    <tbody>{cat_rows if cat_rows else "<tr><td colspan='2' style='color:#94a3b8'>暂无数据</td></tr>"}</tbody></table>
+  </div>
+  <div class="section">
+    <h2>⭐ 重点政策 Top 5</h2>
+    {top5_html if top5_html else "<p style='color:#94a3b8;font-size:13px;'>本周暂无政策数据</p>"}
+  </div>
+  <div class="footer">本报告由储能政策情报看板自动生成 · {generated_at}</div>
+</div>
+</body>
+</html>"""
+
+
+# ── Report API ────────────────────────────────────────────────────────────────
+
 @app.get("/api/report/weekly")
-async def api_report_weekly(format: str = "md", user=Depends(require_login)):
-    stats = _get_stats()
-    report = f"# 储能政策情报周报\n\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-    report += f"## 数据概览\n- 总收录：{stats['total']} 条\n- 近7天新增：{stats['recent_7d']} 条\n"
-    return {"format": format, "content": report}
+async def api_report_weekly(week: str = "", user=Depends(require_login)):
+    if not week:
+        week = _current_iso_week()
+    conn = get_conn()
+    try:
+        cached = conn.execute(
+            "SELECT content_json FROM reports WHERE report_type='weekly' AND period=?", (week,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if cached:
+        return json.loads(cached["content_json"])
+    report = _generate_weekly_report_data(week)
+    _save_report("weekly", week, report)
+    return report
+
+
+@app.get("/api/report/weekly/download")
+async def api_report_weekly_download(week: str = "", user=Depends(require_login)):
+    if not week:
+        week = _current_iso_week()
+    conn = get_conn()
+    try:
+        cached = conn.execute(
+            "SELECT content_json FROM reports WHERE report_type='weekly' AND period=?", (week,)
+        ).fetchone()
+    finally:
+        conn.close()
+    report = json.loads(cached["content_json"]) if cached else _generate_weekly_report_data(week)
+    if not cached:
+        _save_report("weekly", week, report)
+    html = _render_weekly_report_html(report)
+    filename = f"weekly_report_{week}.html"
+    return HTMLResponse(
+        content=html,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/reports/list")
+async def api_reports_list(report_type: str = "weekly", limit: int = 12, user=Depends(require_login)):
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, report_type, period, created_at FROM reports WHERE report_type=? ORDER BY period DESC LIMIT ?",
+            (report_type, limit),
+        ).fetchall()
+        return {"reports": [dict(r) for r in rows]}
+    finally:
+        conn.close()
 
 
 # ── Scope API（stub）─────────────────────────────────────────────────────────
