@@ -782,46 +782,93 @@ async def api_compare(request: Request, user=Depends(require_login)):
         conn.close()
 
 
-# ── Province Compare API ──────────────────────────────────────────────────────
+# ── Province Compare API ───────────────────────────────────────────────────────
 
 @app.get("/api/compare-provinces")
-async def api_compare_provinces(provinces: str = "", user=Depends(require_login)):
-    """跨省对比：返回指定省份的政策数量、分类分布、最新政策等统计信息"""
-    if not provinces:
+async def api_compare_provinces(provinces: str = "", category: str = "", user=Depends(require_login)):
+    """
+    Compare policies across provinces.
+    provinces: comma-separated province names
+    category: optional category filter substring
+    Returns per-province stats: total, recent_30d, top_categories, latest_3
+    """
+    prov_list = [p.strip() for p in provinces.split(",") if p.strip()]
+    if not prov_list:
         raise HTTPException(400, "请提供省份列表（逗号分隔）")
-    province_list = [p.strip() for p in provinces.split(",") if p.strip()]
-    if len(province_list) < 2:
-        raise HTTPException(400, "至少选择两个省份")
-    if len(province_list) > 6:
-        province_list = province_list[:6]
+    if len(prov_list) > 4:
+        prov_list = prov_list[:4]
+
     conn = get_conn()
     try:
+        import json as _json
+        from datetime import date, timedelta
+        cutoff = (date.today() - timedelta(days=30)).isoformat()
         result = []
-        for prov in province_list:
-            total = conn.execute(
-                "SELECT COUNT(*) FROM items WHERE region=?", (prov,)
-            ).fetchone()[0]
-            recent_30d = conn.execute(
-                "SELECT COUNT(*) FROM items WHERE region=? AND date >= date('now','-30 days')", (prov,)
-            ).fetchone()[0]
-            cat_rows = conn.execute(
-                "SELECT categories, COUNT(*) as cnt FROM items WHERE region=? AND categories IS NOT NULL AND categories!='' GROUP BY categories ORDER BY cnt DESC LIMIT 5",
-                (prov,)
-            ).fetchall()
-            top_cats = [{"name": r["categories"], "count": r["cnt"]} for r in cat_rows]
-            latest_rows = conn.execute(
-                "SELECT id, title, url, date, source_name FROM items WHERE region=? ORDER BY date DESC, id DESC LIMIT 3",
-                (prov,)
-            ).fetchall()
-            latest = [{"id": r["id"], "title": r["title"], "url": r["url"], "date": r["date"] or "", "source": r["source_name"] or ""} for r in latest_rows]
+        for prov in prov_list:
+            if category:
+                total_row = conn.execute(
+                    "SELECT COUNT(*) FROM items WHERE region=? AND categories LIKE ?",
+                    (prov, f"%{category}%")
+                ).fetchone()
+                recent_row = conn.execute(
+                    "SELECT COUNT(*) FROM items WHERE region=? AND categories LIKE ? AND date>=?",
+                    (prov, f"%{category}%", cutoff)
+                ).fetchone()
+                cat_rows = conn.execute(
+                    "SELECT categories FROM items WHERE region=? AND categories LIKE ? AND categories IS NOT NULL AND categories!=''",
+                    (prov, f"%{category}%")
+                ).fetchall()
+                latest_rows = conn.execute(
+                    "SELECT id,title,date,categories,summary_1line FROM items WHERE region=? AND categories LIKE ? ORDER BY date DESC LIMIT 3",
+                    (prov, f"%{category}%")
+                ).fetchall()
+            else:
+                total_row = conn.execute(
+                    "SELECT COUNT(*) FROM items WHERE region=?", (prov,)
+                ).fetchone()
+                recent_row = conn.execute(
+                    "SELECT COUNT(*) FROM items WHERE region=? AND date>=?", (prov, cutoff)
+                ).fetchone()
+                cat_rows = conn.execute(
+                    "SELECT categories FROM items WHERE region=? AND categories IS NOT NULL AND categories!=''",
+                    (prov,)
+                ).fetchall()
+                latest_rows = conn.execute(
+                    "SELECT id,title,date,categories,summary_1line FROM items WHERE region=? ORDER BY date DESC LIMIT 3",
+                    (prov,)
+                ).fetchall()
+
+            # tally categories (properly expands JSON arrays)
+            cat_counts: dict = {}
+            for (cats_json,) in cat_rows:
+                try:
+                    cats = _json.loads(cats_json) if cats_json else []
+                except Exception:
+                    cats = [cats_json] if cats_json else []
+                for c in cats:
+                    c = c.strip()
+                    if c:
+                        cat_counts[c] = cat_counts.get(c, 0) + 1
+            top_cats = sorted(cat_counts.items(), key=lambda x: -x[1])[:5]
+
+            latest = []
+            for row in latest_rows:
+                latest.append({
+                    "id": row[0],
+                    "title": row[1],
+                    "date": row[2],
+                    "categories": row[3],
+                    "summary_1line": row[4],
+                })
+
             result.append({
                 "province": prov,
-                "total": total,
-                "recent_30d": recent_30d,
-                "top_categories": top_cats,
-                "latest": latest,
+                "total": total_row[0] if total_row else 0,
+                "recent_30d": recent_row[0] if recent_row else 0,
+                "top_categories": [{"name": k, "count": v} for k, v in top_cats],
+                "latest_3": latest,
             })
-        return {"data": result}
+        return {"provinces": result}
     finally:
         conn.close()
 

@@ -2462,125 +2462,182 @@ function BookmarksView() {
   );
 }
 
-// ── ProvinceCompareView（跨省对比）──────────────────────────────────────────
-const PROVINCE_OPTIONS = [
-  "北京","上海","广东","江苏","浙江","山东","河南","湖北","湖南","四川",
-  "安徽","河北","陕西","福建","重庆","云南","辽宁","江西","广西","贵州",
-  "内蒙古","山西","黑龙江","吉林","甘肃","海南","宁夏","新疆","西藏","青海",
-  "天津","全国"
-];
+// ── ProvinceCompareView ──────────────────────────────────
+const ALL_PROVINCES = ["北京","天津","上海","重庆","河北","山西","内蒙古","辽宁","吉林","黑龙江","江苏","浙江","安徽","福建","江西","山东","河南","湖北","湖南","广东","广西","海南","四川","贵州","云南","西藏","陕西","甘肃","青海","宁夏","新疆","全国"];
 
 function ProvinceCompareView() {
-  const [selected, setSelected] = React.useState([]);
-  const [loading, setLoading]   = React.useState(false);
-  const [error,   setError]     = React.useState(null);
-  const [data,    setData]      = React.useState(null);
+  const [selected, setSelected] = useState([]);
+  const [category, setCategory] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState(null);
+  const [error, setError]       = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult]   = useState(null);
+  const [hasAiKey, setHasAiKey]   = useState(false);
 
-  const toggle = (p) => {
-    setSelected(prev =>
-      prev.includes(p) ? prev.filter(x=>x!==p) : prev.length>=6 ? prev : [...prev, p]
-    );
-  };
+  useEffect(()=>{
+    fetch("/api/search",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({q:"__ai_check__",limit:0,offset:0})})
+      .then(r=>r.json()).then(d=>{ if(d.ai_available) setHasAiKey(true); }).catch(()=>{});
+  },[]);
 
-  const compare = async () => {
-    if (selected.length < 2) { setError("请至少选择两个省份"); return; }
-    setLoading(true); setError(null); setData(null);
+  function toggleProvince(p) {
+    setSelected(prev => {
+      if(prev.includes(p)) return prev.filter(x=>x!==p);
+      if(prev.length>=4) return prev;
+      return [...prev, p];
+    });
+  }
+
+  async function doCompare() {
+    if(selected.length < 2) return;
+    setLoading(true); setError(null); setResult(null); setAiResult(null);
     try {
-      const r = await fetch("/api/compare-provinces?provinces=" + encodeURIComponent(selected.join(",")));
+      const qs = new URLSearchParams({provinces: selected.join(",")});
+      if(category) qs.set("category", category);
+      const r = await fetch("/api/compare-provinces?" + qs.toString());
       const d = await r.json();
-      if (!r.ok) { setError(d.detail || "请求失败"); }
-      else { setData(d.data); }
+      if(!r.ok) setError(d.detail || "对比失败");
+      else setResult(d);
     } catch(e) { setError(String(e)); }
     finally { setLoading(false); }
-  };
+  }
+
+  async function doAiAnalysis() {
+    if(!result) return;
+    setAiLoading(true); setAiResult(null);
+    try {
+      const r = await fetch("/api/search", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          q: `请对比以下省份的储能政策差异，数据如下：\n${JSON.stringify(result.provinces, null, 2)}\n请从政策总量、近期活跃度、主要分类侧重点三个维度分析各省差异，并给出结论。`,
+          limit: 0, ai_only: true
+        })
+      });
+      const d = await r.json();
+      setAiResult(d.answer || d.ai_answer || "未获得AI分析结果");
+    } catch(e) { setAiResult("AI分析失败：" + String(e)); }
+    finally { setAiLoading(false); }
+  }
+
+  const catOptions = ["","政策/规划/指导意见","补贴/财政/金融支持","标准规范","示范项目/试点清单","通知/办法/细则/实施方案","事故通报/风险预警/执法处罚","招标/采购","市场/价格/电力交易"];
 
   return (
-    <div style={{padding:"24px 32px",maxWidth:1100,margin:"0 auto"}}>
-      <h2 style={{fontSize:22,fontWeight:800,marginBottom:8}}>📊 省份政策对比</h2>
-      <p style={{color:"var(--text-muted)",marginBottom:20,fontSize:13}}>选择 2–6 个省份，点击"开始对比"查看各省储能政策分布情况</p>
+    <div style={{padding:"24px 28px",maxWidth:1100}}>
+      <h2 style={{fontSize:20,fontWeight:700,color:"#1e293b",marginBottom:4}}>⚖️ 省份政策对比</h2>
+      <p style={{color:"#64748b",fontSize:13,marginBottom:20}}>选择 2–4 个省份，查看政策数量、分类分布及最新动态对比</p>
 
-      {/* 省份选择 */}
-      <div style={{background:"var(--card)",borderRadius:12,padding:20,marginBottom:20}}>
-        <div style={{fontWeight:700,marginBottom:12,fontSize:14}}>选择省份（已选 {selected.length}/6）</div>
+      {/* 省份选择器 */}
+      <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:16,marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,color:"#374151",marginBottom:10}}>
+          选择省份（已选 {selected.length}/4）
+        </div>
         <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-          {PROVINCE_OPTIONS.map(p=>{
+          {ALL_PROVINCES.map(p=>{
             const on = selected.includes(p);
+            const disabled = !on && selected.length>=4;
             return (
-              <button key={p} onClick={()=>toggle(p)}
-                style={{padding:"5px 12px",borderRadius:20,fontSize:13,cursor:"pointer",border:"1px solid",
-                  borderColor: on?"var(--primary)":"var(--border)",
-                  background:  on?"var(--primary)":"transparent",
-                  color:       on?"#fff":"var(--text-muted)",
-                  fontWeight:  on?700:400,
-                  transition:"all .15s"}}>
+              <button key={p} onClick={()=>!disabled&&toggleProvince(p)}
+                style={{padding:"5px 12px",borderRadius:6,fontSize:12,fontWeight:600,cursor:disabled?"not-allowed":"pointer",
+                  border:`1.5px solid ${on?"#4f46e5":"#e2e8f0"}`,
+                  background:on?"#eef2ff":"#fff",color:on?"#4f46e5":disabled?"#cbd5e1":"#374151",
+                  transition:"all .12s"}}>
                 {p}
               </button>
             );
           })}
         </div>
-        <div style={{marginTop:16,display:"flex",gap:12,alignItems:"center"}}>
-          <button onClick={compare} disabled={loading||selected.length<2}
-            style={{padding:"8px 24px",borderRadius:8,background:"var(--primary)",color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:selected.length<2?"not-allowed":"pointer",opacity:selected.length<2?.5:1}}>
-            {loading?"分析中…":"🔍 开始对比"}
-          </button>
-          {selected.length>0&&<button onClick={()=>setSelected([])} style={{padding:"8px 16px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-muted)",cursor:"pointer",fontSize:13}}>清空</button>}
-          {error&&<span style={{color:"#f87171",fontSize:13}}>{error}</span>}
-        </div>
       </div>
 
-      {/* 结果表格 */}
-      {data&&(
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-            <thead>
-              <tr style={{background:"var(--card-hover,#1e293b)"}}>
-                <th style={{...TH,width:80}}>省份</th>
-                <th style={TH}>总政策数</th>
-                <th style={TH}>近30天</th>
-                <th style={TH}>主要分类（Top3）</th>
-                <th style={TH}>最新政策</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row,i)=>(
-                <tr key={row.province} style={{background:i%2===0?"transparent":"var(--card,#0f172a)",borderBottom:"1px solid var(--border)"}}>
-                  <td style={{...TD,fontWeight:700,color:"var(--primary)"}}>{row.province}</td>
-                  <td style={{...TD,textAlign:"center",fontWeight:700,fontSize:18}}>{row.total}</td>
-                  <td style={{...TD,textAlign:"center",color:"#4ade80",fontWeight:600}}>{row.recent_30d}</td>
-                  <td style={TD}>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                      {row.top_categories.slice(0,3).map(c=>(
-                        <span key={c.name} style={{background:"var(--primary-dim,#1e3a5f)",color:"var(--primary)",borderRadius:10,padding:"2px 8px",fontSize:11}}>
-                          {c.name} <strong>{c.count}</strong>
-                        </span>
-                      ))}
-                      {row.top_categories.length===0&&<span style={{color:"var(--text-muted)"}}>—</span>}
-                    </div>
-                  </td>
-                  <td style={TD}>
-                    {row.latest.slice(0,2).map(p=>(
-                      <div key={p.id} style={{marginBottom:4}}>
-                        <a href={p.url} target="_blank" rel="noreferrer"
-                          style={{color:"var(--text)",textDecoration:"none",fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:260}}
-                          title={p.title}>
-                          {p.title}
-                        </a>
-                        <span style={{color:"var(--text-muted)",fontSize:11}}>{p.date}</span>
-                      </div>
-                    ))}
-                    {row.latest.length===0&&<span style={{color:"var(--text-muted)"}}>—</span>}
-                  </td>
+      {/* 分类筛选 + 操作 */}
+      <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:20,flexWrap:"wrap"}}>
+        <select value={category} onChange={e=>setCategory(e.target.value)}
+          style={{padding:"7px 12px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:13,color:"#374151",background:"#fff",minWidth:200}}>
+          {catOptions.map(c=><option key={c} value={c}>{c||"全部分类"}</option>)}
+        </select>
+        <button onClick={doCompare} disabled={selected.length<2||loading}
+          style={{padding:"8px 22px",background:selected.length<2?"#e2e8f0":"#4f46e5",color:selected.length<2?"#94a3b8":"#fff",
+            border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:selected.length<2?"not-allowed":"pointer"}}>
+          {loading ? "对比中…" : "开始对比"}
+        </button>
+        {selected.length>0&&<button onClick={()=>{setSelected([]);setResult(null);setAiResult(null);}}
+          style={{padding:"7px 14px",background:"#f1f5f9",color:"#64748b",border:"none",borderRadius:8,fontSize:12,cursor:"pointer"}}>
+          清空
+        </button>}
+      </div>
+
+      {error && <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 14px",color:"#dc2626",fontSize:13,marginBottom:16}}>{error}</div>}
+
+      {/* 对比结果表格 */}
+      {result && (
+        <div>
+          <div style={{overflowX:"auto",marginBottom:20}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:"#f1f5f9"}}>
+                  {["省份","政策总数","近30天新增","主要分类分布（Top 3）","最新3条政策"].map(h=>(
+                    <th key={h} style={{padding:"10px 14px",textAlign:"left",fontWeight:700,color:"#374151",borderBottom:"2px solid #e2e8f0",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {result.provinces.map((prov,i)=>(
+                  <tr key={prov.province} style={{background:i%2===0?"#fff":"#f8fafc",verticalAlign:"top"}}>
+                    <td style={{padding:"12px 14px",fontWeight:700,color:"#1e293b",borderBottom:"1px solid #f1f5f9",whiteSpace:"nowrap"}}>
+                      {prov.province}
+                    </td>
+                    <td style={{padding:"12px 14px",borderBottom:"1px solid #f1f5f9",textAlign:"center"}}>
+                      <span style={{fontSize:22,fontWeight:800,color:"#4f46e5"}}>{prov.total}</span>
+                    </td>
+                    <td style={{padding:"12px 14px",borderBottom:"1px solid #f1f5f9",textAlign:"center"}}>
+                      <span style={{fontSize:18,fontWeight:700,color:prov.recent_30d>0?"#059669":"#94a3b8"}}>{prov.recent_30d}</span>
+                    </td>
+                    <td style={{padding:"12px 14px",borderBottom:"1px solid #f1f5f9",maxWidth:220}}>
+                      {prov.top_categories.slice(0,3).map(c=>(
+                        <div key={c.name} style={{marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{flex:1,fontSize:11,color:"#475569",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name}</div>
+                          <span style={{fontSize:11,fontWeight:700,color:"#4f46e5",background:"#eef2ff",padding:"1px 6px",borderRadius:10,flexShrink:0}}>{c.count}</span>
+                        </div>
+                      ))}
+                      {prov.top_categories.length===0&&<span style={{color:"#cbd5e1",fontSize:12}}>暂无数据</span>}
+                    </td>
+                    <td style={{padding:"12px 14px",borderBottom:"1px solid #f1f5f9",maxWidth:280}}>
+                      {prov.latest_3.map(item=>(
+                        <div key={item.id} style={{marginBottom:8,paddingBottom:8,borderBottom:"1px dashed #f1f5f9"}}>
+                          <div style={{fontSize:12,fontWeight:600,color:"#1e293b",lineHeight:1.4,marginBottom:2}}>{item.title}</div>
+                          <div style={{fontSize:11,color:"#94a3b8"}}>{item.date}</div>
+                        </div>
+                      ))}
+                      {prov.latest_3.length===0&&<span style={{color:"#cbd5e1",fontSize:12}}>暂无数据</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* AI深度对比 */}
+          {hasAiKey && (
+            <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:10,padding:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:aiResult?12:0}}>
+                <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>✨ AI 深度对比分析</span>
+                <button onClick={doAiAnalysis} disabled={aiLoading}
+                  style={{padding:"6px 16px",background:aiLoading?"#d1fae5":"#16a34a",color:"#fff",border:"none",borderRadius:7,fontSize:12,fontWeight:700,cursor:aiLoading?"not-allowed":"pointer"}}>
+                  {aiLoading ? "分析中…" : "生成AI分析"}
+                </button>
+              </div>
+              {aiResult && (
+                <div style={{fontSize:13,color:"#166534",lineHeight:1.7,whiteSpace:"pre-wrap",marginTop:8,background:"#fff",borderRadius:8,padding:14,border:"1px solid #d1fae5"}}>
+                  {aiResult}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
-const TH = {padding:"10px 14px",textAlign:"left",fontWeight:700,fontSize:12,color:"var(--text-muted)",borderBottom:"2px solid var(--border)"};
-const TD = {padding:"10px 14px",verticalAlign:"top"};
 
 // ── CompareBar（全局对比托盘）─────────────────────────────
 function CompareBar({items, onRemove, onClear}) {
@@ -3417,12 +3474,12 @@ function App() {
     {id:"dashboard",label:"📊 Dashboard"},
     {id:"list",     label:"📋 政策列表"},
     {id:"search",   label:"🔍 问政策"},
+    {id:"province-compare",label:"⚖️ 省份对比"},
     {id:"bookmarks",label:"⭐ 收藏夹"},
     {id:"sources",  label:"📡 数据源"},
     {id:"notifs",   label:"🔔 通知"},
     {id:"subs",     label:"📬 订阅"},
     // {id:"scope", label:"🧭 项目配置"},  // 暂隐藏，功能未联动
-    {id:"compare",  label:"📊 省份对比"},
   ];
 
   return (
@@ -3484,12 +3541,12 @@ function App() {
           {view==="dashboard"&&<DashboardView stats={stats} onViewAll={()=>setView("list")}/>}
           {view==="list"&&<ListView catCounts={catCounts} regions={regions} regionCounts={regionCounts} sources={sources} onAddToCompare={addToCompare} compareIds={compareItems.map(x=>x.id)}/>}
           {view==="search"&&<SearchView/>}
+          {view==="province-compare"&&<ProvinceCompareView/>}
           {view==="bookmarks"&&<BookmarksView/>}
           {view==="sources"&&<SourceStatusView/>}
           {view==="notifs"&&<NotificationsView onUnreadChange={n=>{setUnread(n);}}/>}
           {view==="subs"&&<SubscriptionsView smtpConfigured={userInfo?.smtp_configured||false}/>}
           {view==="scope"&&<ScopeView/>}
-          {view==="compare"&&<ProvinceCompareView/>}
         </main>
       </div>
 
