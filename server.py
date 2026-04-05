@@ -6,7 +6,10 @@ Fly.io 原版前端（React SPA）+ 全量 JSON API
 from __future__ import annotations
 
 import json
+import logging
 import os
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -245,11 +248,52 @@ def _seed_from_backup() -> None:
         seed_conn.close()
 
 
+logger = logging.getLogger("scheduler")
+
+
+def _run_daily_scrape():
+    """后台线程：每 24 小时自动抓取一次政策数据。
+    首次运行延迟 5 分钟，避免影响服务启动。
+
+    依赖环境变量：
+      BRAVE_API_KEY — 省级政策 Brave Search 搜索，未设置则只跑月报。
+                      请在 Railway → Variables 里添加此变量。
+    """
+    # 首次延迟 5 分钟
+    time.sleep(5 * 60)
+
+    while True:
+        start = datetime.now()
+        logger.info("🤖 定时爬虫启动 %s", start.strftime("%Y-%m-%d %H:%M:%S"))
+        try:
+            import auto_scrape
+            auto_scrape.run_monthly()
+            brave_key = os.environ.get("BRAVE_API_KEY", "")
+            if brave_key:
+                auto_scrape.run_province_search()
+            else:
+                logger.warning("BRAVE_API_KEY 未设置，省份搜索已跳过（仅跑月报）")
+            auto_scrape.run_deadline_extraction()
+            auto_scrape.run_cleanup()
+            elapsed = (datetime.now() - start).total_seconds()
+            logger.info("✅ 定时爬虫完成，耗时 %.0fs", elapsed)
+        except Exception:
+            logger.exception("❌ 定时爬虫异常，下次仍会重试")
+
+        # 等待 24 小时后再次运行
+        time.sleep(24 * 60 * 60)
+
+
 @app.on_event("startup")
 async def startup():
     db.init_db()
     auth.init_users_table()
     _seed_from_backup()
+
+    # 启动后台定时爬虫线程（daemon=True：主进程退出时自动结束）
+    t = threading.Thread(target=_run_daily_scrape, name="daily-scraper", daemon=True)
+    t.start()
+    logger.info("后台定时爬虫已启动（5 分钟后首次运行，之后每 24 小时一次）")
 
 
 # ── 主页：Fly.io React SPA ────────────────────────────────────────────────────
